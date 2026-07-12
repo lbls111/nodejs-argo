@@ -14,11 +14,14 @@ RUN apk update && apk upgrade && \
     ca-certificates netcat-openbsd nginx
 
 COPY index.js index.html package.json ./
-COPY exit-proxy.js modify-xray.js start.sh ./
-# 兼容旧 refresh 脚本（可选）
-COPY refresh-vpn.sh ./
+COPY exit-proxy.js /tmp/exit-proxy.js
+COPY modify-xray.js /tmp/modify-xray.js
+COPY start.sh refresh-vpn.sh ./
 
-RUN chmod +x index.js start.sh refresh-vpn.sh && npm install
+RUN chmod +x index.js start.sh refresh-vpn.sh /tmp/modify-xray.js /tmp/exit-proxy.js && npm install
+
+# 构建时验证关键文件存在
+RUN test -f /tmp/modify-xray.js && test -f /tmp/exit-proxy.js && ls -la /tmp/*.js
 
 COPY nginx.conf /etc/nginx/nginx.conf
 
