@@ -167,7 +167,7 @@ function restartXray(bin,cfgPath){
   try{fs.chmodSync(bin,0o755)}catch(e){}
   log('starting: '+bin+' run -c '+cfgPath);
   try{
-    const out=execSync(bin+' run -c '+cfgPath+' >/dev/null 2>&1 & echo $!',{encoding:'utf8',timeout:5000}).trim();
+    const out=execSync(bin+' run -c '+cfgPath+' >/dev/null 2>&1 & echo \$!',{encoding:'utf8',timeout:5000}).trim();
     const pid=out.split(/\\s/).filter(Boolean).pop();
     if(pid&&/^\\d+$/.test(pid)){
       log('started PID: '+pid);
