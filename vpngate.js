@@ -80,8 +80,17 @@ class VpngateCrawler {
     }
 
     async filterAlive(nodes) {
-        const testCount = Math.min(nodes.length, 100);
-        const toTest = nodes.slice(0, testCount);
+        // 过滤掉没有 tls-auth/tls-crypt 的节点（openvpn2socks 强制要求）
+        const withTls = nodes.filter(n => /tls-auth|tls-crypt/.test(n.ovpn));
+        const withoutTls = nodes.length - withTls.length;
+        if (withoutTls > 0) {
+            console.log(`[VPN-Gate] 过滤无 TLS 认证节点: ${withoutTls}/${nodes.length}`);
+        }
+        // 优先使用有 tls-auth 的节点；如果没有，回退到全部节点（尝试注入）
+        const candidates = withTls.length > 0 ? withTls : nodes;
+
+        const testCount = Math.min(candidates.length, 100);
+        const toTest = candidates.slice(0, testCount);
         const alive = [];
         let tested = 0;
 
