@@ -172,6 +172,15 @@ if(!found){
   log('ERROR: no xray config found')
   process.exit(1)
 }
+// 打印入站端口用于诊断
+if(found.config&&found.config.inbounds){
+  found.config.inbounds.forEach(function(ib,i){
+    var info=ib.protocol||'?';
+    if(ib.port!==undefined)info+=' port='+ib.port;
+    if(ib.listen)info+=' listen='+ib.listen;
+    log('inbound['+i+']: '+info)
+  })
+}
 const modified=modifyConfig(found.config);
 ensureSocksFirst(modified);
 const backup=found.path+'.backup';
