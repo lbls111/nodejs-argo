@@ -38,10 +38,29 @@ VPN_SERVER_PID=$!
 echo "[4] 等待 xray 配置生成..."
 sleep 8
 
-# ========== 5. 获取 VPN Gate 节点（启动时仅一次） ==========
-echo "[5] 获取 VPN Gate 节点..."
+# ========== 5. 等待 VPN Gate 爬取完成 + 获取节点 ==========
+echo "[5] 等待 VPN Gate 节点就绪..."
 
-# 5a. 先尝试从缓存读取
+# 5a. 轮询 /status 直到有可用节点（最多等 120 秒）
+VPN_READY=0
+for i in $(seq 1 60); do
+    STATUS=$(curl -s --max-time 3 http://127.0.0.1:3001/status 2>/dev/null)
+    if [ -n "$STATUS" ]; then
+        NODE_COUNT=$(echo "$STATUS" | node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(String(j.nodes||0))}catch(e){process.stdout.write('0')}" 2>/dev/null)
+        if [ "$NODE_COUNT" != "0" ] && [ -n "$NODE_COUNT" ]; then
+            echo "[5] VPN Gate 就绪，$NODE_COUNT 个节点可用"
+            VPN_READY=1
+            break
+        fi
+    fi
+    sleep 2
+done
+
+if [ "$VPN_READY" = "0" ]; then
+    echo "[5] VPN Gate 120 秒内未就绪，使用直连模式"
+fi
+
+# 5b. 先尝试从缓存读取
 load_cached_node() {
     if [ -f "$CACHE_FILE" ]; then
         # 读取缓存中的节点，按 last_success 倒序

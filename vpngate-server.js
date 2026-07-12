@@ -71,11 +71,14 @@ a{color:#0ff}</style></head><body>
 });
 
 async function main() {
-    console.log('[VPN-Gate] Starting crawler...');
-    await crawler.update();
-
+    // 先启动 HTTP server（暴露 /status），再后台爬取
+    // 这样 start.sh 可以轮询 /status 等待节点就绪
     server.listen(PORT, '0.0.0.0', () => {
         console.log(`[VPN-Gate] HTTP server on port ${PORT}`);
+
+        // 后台首次爬取（不阻塞 HTTP server）
+        console.log('[VPN-Gate] Starting crawler...');
+        crawler.update().catch(e => console.error('[VPN-Gate] Crawler error:', e));
     });
 
     setInterval(() => {
