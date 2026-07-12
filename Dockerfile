@@ -15,8 +15,9 @@ RUN apk add --no-cache git
 # 克隆 go-openvpn
 RUN git clone --depth 1 https://github.com/n0madic/go-openvpn.git .
 
-# 编译 openvpn2socks（用户态，无 TUN/TAP 依赖）
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/openvpn2socks ./cmd/openvpn2socks
+# 编译 openvpn2socks（独立模块，需从子目录构建）
+WORKDIR /src/cmd/openvpn2socks
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/openvpn2socks .
 
 # Stage 2: 运行环境
 FROM node:alpine3.22
