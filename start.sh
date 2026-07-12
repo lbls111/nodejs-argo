@@ -319,7 +319,7 @@ fi
 
 echo "=========================================="
 echo "  Service started"
-echo "  VLESS/VMess port: 3000 (via nginx)"
+  echo "  VLESS/VMess port: 3000 (direct)"
 echo "  Subscription: /sub"
 [ "$SOCKS5_READY" = "1" ] && echo "  Exit: SOCKS5 $CURRENT_EXIT_HOST:$CURRENT_EXIT_PORT ($CURRENT_EXIT_IP)" || echo "  Exit: direct (Railway)"
 echo "=========================================="
