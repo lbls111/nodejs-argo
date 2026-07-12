@@ -125,13 +125,21 @@ function modifyConfig(cfg){
   const u='$SOCKS5_USER',p='$SOCKS5_PASS';
   if(u&&p)server.users=[{user:u,pass:p}];
   cfg.outbounds.unshift({protocol:'socks',tag:tag,settings:{servers:[server]}});
+  // 替换每个非内部出站的路由目标为 clean-exit
   if(!cfg.routing)cfg.routing={};
   if(!cfg.routing.rules)cfg.routing.rules=[];
+  const internalTags=['dns','block','api','inbound-','in-'];
   for(const r of cfg.routing.rules){
-    if(r.outboundTag==='vpn-gate'||r.outboundTag==='direct')r.outboundTag=tag
+    if(!internalTags.some(t=>r.outboundTag&&r.outboundTag.startsWith(t))){
+      const old=r.outboundTag;
+      r.outboundTag=tag;
+      if(old&&old!==tag)log('routing: '+old+' -> '+tag)
+    }
   }
+  // 兜底：所有 tcp/udp 走 clean-exit
   if(!cfg.routing.rules.some(r=>r.outboundTag===tag)){
-    cfg.routing.rules.push({type:'field',network:'tcp,udp',outboundTag:tag})
+    cfg.routing.rules.push({type:'field',network:'tcp,udp',outboundTag:tag});
+    log('routing: added catch-all -> '+tag)
   }
   log('added clean-exit outbound: '+socksAddr)
   return cfg
