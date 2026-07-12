@@ -44,6 +44,9 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            COMMIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/ccvs:latest
           labels: |

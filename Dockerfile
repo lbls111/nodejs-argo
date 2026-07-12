@@ -58,6 +58,13 @@ ENV VPNGATE_OUTPUT=/tmp/vpngate
 ENV SOCKS5_ADDR=127.0.0.1:1080
 ENV XRAY_CONFIG=/tmp/config.json
 
+# 版本信息（构建时注入）
+ARG COMMIT_SHA=unknown
+ARG BUILD_TIME=unknown
+ENV COMMIT_SHA=${COMMIT_SHA}
+ENV BUILD_TIME=${BUILD_TIME}
+RUN echo "{\"commit\":\"${COMMIT_SHA}\",\"built\":\"${BUILD_TIME}\"}" > /tmp/version.json
+
 # Go 运行时调优：激进 GC，防止 gVisor 内存爬升导致 OOM
 ENV GOGC=50
 ENV GOMEMLIMIT=800MiB
