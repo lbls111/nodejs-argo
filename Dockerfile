@@ -1,99 +1,41 @@
 # ==========================================
-# nodejs-argo + VPN Gate 完整镜像
-# 架构：客户端 → VLESS/VMess → Railway → VPN Gate → 互联网
-# 关键：使用 go-openvpn 用户态实现，无需 TUN/TAP
+# nodejs-argo + 公共 SOCKS5 干净出口
+# 架构：客户端 → VLESS/VMess → Railway → SOCKS5 → 互联网
+# 无 openvpn / 无 TUN / 无 go 编译
 # ==========================================
 
-# Stage 1: 编译 openvpn2socks（用户态 OpenVPN + SOCKS5）
-# 已打补丁：添加 AES-128-CBC + HMAC-SHA1 支持（VPN Gate 兼容）
-FROM golang:1.26-alpine3.22 AS builder
-
-WORKDIR /src
-
-# 安装 git + python3（用于打补丁）
-RUN apk add --no-cache git python3
-
-# 克隆 go-openvpn
-RUN git clone --depth 1 https://github.com/n0madic/go-openvpn.git .
-
-# 复制并应用 CBC+HMAC 补丁（失败即中断构建）
-COPY patches/ /patches/
-RUN chmod +x /patches/apply.sh && sh /patches/apply.sh
-
-# 源码级验证：确认补丁已写入（防止静默失败）
-RUN grep -q 'AES-128-CBC' pkg/ovpn/parse.go \
- && grep -q 'supported:' pkg/ovpn/parse.go \
- && grep -q 'IsCBCCipher' internal/control/keys.go \
- && grep -q 'isAEAD' internal/data/slot.go \
- && grep -q 'NewCBCHMAC' internal/data/slot.go \
- && grep -q 'IsCBCCipher' internal/session/session.go \
- && grep -q 'IsCBCCipher' internal/session/rekey.go \
- && grep -q 'plainControlWrapper' internal/session/session.go \
- && test -f internal/data/cbchmac.go \
- && test -f internal/session/plainctrl.go \
- && echo "[verify] source-level CBC + plain-control patch markers present"
-
-# 编译 openvpn2socks（独立模块，需从子目录构建）
-WORKDIR /src/cmd/openvpn2socks
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/openvpn2socks .
-
-# 二进制级验证：错误信息字符串必须是 patched 版本（grep -a 读二进制，不依赖 binutils）
-RUN (grep -a -q 'supported: AES-256-GCM' /out/openvpn2socks \
-    && ! grep -a -q 'AEAD only: AES-256-GCM' /out/openvpn2socks) \
- || (echo "[verify FATAL] binary still has unpatched cipher error string" \
-     && grep -a -oE '.{0,40}(AES-128|AEAD only|supported:).{0,40}' /out/openvpn2socks || true \
-     && exit 1) \
- && echo "[verify] binary contains patched cipher strings"
-
-# Stage 2: 运行环境
 FROM node:alpine3.22
 
 WORKDIR /tmp
 
-# 安装运行时依赖（nginx 用于端口复用，不再需要 openvpn/iproute2）
 RUN apk update && apk upgrade && \
     apk add --no-cache \
     openssl curl gcompat coreutils bash \
     ca-certificates netcat-openbsd nginx
 
-# 复制 openvpn2socks
-COPY --from=builder /out/openvpn2socks /usr/local/bin/openvpn2socks
-RUN chmod +x /usr/local/bin/openvpn2socks
-
-# 复制 nodejs-argo 原有文件（保持不变）
 COPY index.js index.html package.json ./
+COPY exit-proxy.js modify-xray.js start.sh ./
+# 兼容旧 refresh 脚本（可选）
+COPY refresh-vpn.sh ./
 
-# 复制 VPN Gate 模块（新增）
-COPY vpngate.js vpngate-server.js modify-xray.js start.sh refresh-vpn.sh ./
-
-# 安装 Node.js 依赖
 RUN chmod +x index.js start.sh refresh-vpn.sh && npm install
 
-# 配置 nginx 反向代理
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# 暴露端口
-# 3000: nginx (复用 VLESS/VMess + 订阅)
-# 1080: SOCKS5 代理 (VPN Gate)
-EXPOSE 3000/tcp 1080/tcp
+# 3000: nginx (VLESS/VMess + 订阅)
+EXPOSE 3000/tcp
 
-# 环境变量
 ENV VPNGATE_PORT=3001
-ENV VPNGATE_INTERVAL=3600
-ENV VPNGATE_OUTPUT=/tmp/vpngate
-ENV SOCKS5_ADDR=127.0.0.1:1080
+ENV EXIT_PORT=3001
+ENV EXIT_INTERVAL=1800
+ENV EXIT_MAX_NODES=20
 ENV XRAY_CONFIG=/tmp/config.json
+ENV OUTBOUND_TAG=clean-exit
 
-# 版本信息（构建时注入）
 ARG COMMIT_SHA=unknown
 ARG BUILD_TIME=unknown
 ENV COMMIT_SHA=${COMMIT_SHA}
 ENV BUILD_TIME=${BUILD_TIME}
-RUN echo "{\"commit\":\"${COMMIT_SHA}\",\"built\":\"${BUILD_TIME}\"}" > /tmp/version.json
+RUN echo "{\"commit\":\"${COMMIT_SHA}\",\"built\":\"${BUILD_TIME}\",\"mode\":\"socks5-exit\"}" > /tmp/version.json
 
-# Go 运行时调优：激进 GC，防止 gVisor 内存爬升导致 OOM
-ENV GOGC=50
-ENV GOMEMLIMIT=800MiB
-
-# 启动脚本
 CMD ["sh", "start.sh"]

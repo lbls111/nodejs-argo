@@ -9,11 +9,9 @@ on:
       - 'nginx.conf'
       - 'refresh-vpn.sh'
       - 'modify-xray.js'
-      - 'vpngate.js'
-      - 'vpngate-server.js'
+      - 'exit-proxy.js'
       - 'package.json'
       - 'index.js'
-      - 'patches/**'
       - '.gitattributes'
   pull_request:
     branches: [ main ]
