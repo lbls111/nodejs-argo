@@ -143,12 +143,22 @@ class VpngateCrawler {
         console.log('[VPN-Gate] ========== Update Start ==========');
 
         try {
-            const nodes = await this.fetchNodes();
-            if (nodes.length === 0) {
+            const allNodes = await this.fetchNodes();
+            if (allNodes.length === 0) {
                 console.log('[VPN-Gate] No nodes fetched');
                 return false;
             }
-            console.log(`[VPN-Gate] Fetched ${nodes.length} nodes`);
+            console.log(`[VPN-Gate] Fetched ${allNodes.length} nodes`);
+
+            // 只保留目标国家（HK/US），过滤掉 JP/KR/SG/TW 等
+            const ALLOWED_COUNTRIES = ['HK', 'US'];
+            const nodes = allNodes.filter(n => ALLOWED_COUNTRIES.includes(n.country));
+            console.log(`[VPN-Gate] 国家过滤后: ${nodes.length}/${allNodes.length} (${ALLOWED_COUNTRIES.join(',')})`);
+            if (nodes.length === 0) {
+                console.log('[VPN-Gate] 无目标国家节点，回退到全部节点');
+                // 回退：至少用全部节点
+                nodes.push(...allNodes);
+            }
 
             const alive = await this.filterAlive(nodes);
             if (alive.length === 0) {

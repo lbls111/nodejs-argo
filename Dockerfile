@@ -5,15 +5,20 @@
 # ==========================================
 
 # Stage 1: 编译 openvpn2socks（用户态 OpenVPN + SOCKS5）
+# 已打补丁：添加 AES-128-CBC + HMAC-SHA1 支持（VPN Gate 兼容）
 FROM golang:1.26-alpine3.22 AS builder
 
 WORKDIR /src
 
-# 安装 git
-RUN apk add --no-cache git
+# 安装 git + python3（用于打补丁）
+RUN apk add --no-cache git python3
 
 # 克隆 go-openvpn
 RUN git clone --depth 1 https://github.com/n0madic/go-openvpn.git .
+
+# 复制并应用 CBC+HMAC 补丁
+COPY patches/ /patches/
+RUN chmod +x /patches/apply.sh && sh /patches/apply.sh
 
 # 编译 openvpn2socks（独立模块，需从子目录构建）
 WORKDIR /src/cmd/openvpn2socks

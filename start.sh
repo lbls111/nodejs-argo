@@ -204,9 +204,16 @@ else
             fi
         fi
 
-        # 清理不兼容的指令（openvpn2socks 只支持 AEAD + NCP 协商）
-        # 去掉 cipher（让 NCP 协商 AEAD）、auth（AEAD 自带 MAC）、comp-lzo、compress
-        sed -i '/^cipher /d;/^auth /d;/^comp-lzo/d;/^compress /d;/^keysize /d;/^tls-cipher /d' /tmp/vpn-config.ovpn
+        # 清理可能导致问题的指令（openvpn2socks 不支持 comp-lzo 和 compress）
+        # cipher 和 auth 保留 — 库已打补丁支持 AES-128-CBC + SHA1
+        node -e "
+          const f='/tmp/vpn-config.ovpn';
+          let c=require('fs').readFileSync(f,'utf8');
+          c=c.replace(/\r\n/g,'\n');
+          c=c.replace(/^(comp-lzo|compress|keysize)\b.*$/gm,'');
+          c=c.replace(/\n{3,}/g,'\n\n');
+          require('fs').writeFileSync(f,c);
+        "
 
         # 启动 openvpn2socks
         openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
@@ -320,11 +327,11 @@ while true; do
                     NEW_B64=$(echo "$CACHED" | node -e "const d=require('fs').readFileSync(0,'utf8');const j=JSON.parse(d);process.stdout.write(j.openvpn||'')")
                     if [ -n "$NEW_B64" ]; then
                         echo "$NEW_B64" | node -e "const d=require('fs').readFileSync(0,'utf8');process.stdout.write(Buffer.from(d.trim(),'base64').toString('utf-8'))" > /tmp/vpn-config.ovpn
-                        # 注入 tls-auth + 清理不兼容指令
+                        # 注入 tls-auth + 清理 comp-lzo/compress
                         if ! grep -q "tls-auth\|tls-crypt" /tmp/vpn-config.ovpn 2>/dev/null && [ -s /tmp/ta.key ]; then
                             echo "tls-auth /tmp/ta.key 1" >> /tmp/vpn-config.ovpn
                         fi
-                        sed -i '/^cipher /d;/^auth /d;/^comp-lzo/d;/^compress /d;/^keysize /d;/^tls-cipher /d' /tmp/vpn-config.ovpn
+                        node -e "const f='/tmp/vpn-config.ovpn';let c=require('fs').readFileSync(f,'utf8');c=c.replace(/\r\n/g,'\n').replace(/^(comp-lzo|compress|keysize)\b.*$/gm,'');require('fs').writeFileSync(f,c)"
                         openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
                         VPN_PID=$!
                         sleep 5
@@ -344,11 +351,11 @@ while true; do
                         echo "$NEW_B64" | node -e "const d=require('fs').readFileSync(0,'utf8');process.stdout.write(Buffer.from(d.trim(),'base64').toString('utf-8'))" > /tmp/vpn-config.ovpn
                         NEW_IP=$(echo "$NEW_NODE" | node -e "const d=require('fs').readFileSync(0,'utf8');const j=JSON.parse(d);process.stdout.write(j.ip||'')")
                         echo "[probe] 切换到新节点: $NEW_IP"
-                        # 注入 tls-auth + 清理不兼容指令
+                        # 注入 tls-auth + 清理 comp-lzo/compress
                         if ! grep -q "tls-auth\|tls-crypt" /tmp/vpn-config.ovpn 2>/dev/null && [ -s /tmp/ta.key ]; then
                             echo "tls-auth /tmp/ta.key 1" >> /tmp/vpn-config.ovpn
                         fi
-                        sed -i '/^cipher /d;/^auth /d;/^comp-lzo/d;/^compress /d;/^keysize /d;/^tls-cipher /d' /tmp/vpn-config.ovpn
+                        node -e "const f='/tmp/vpn-config.ovpn';let c=require('fs').readFileSync(f,'utf8');c=c.replace(/\r\n/g,'\n').replace(/^(comp-lzo|compress|keysize)\b.*$/gm,'');require('fs').writeFileSync(f,c)"
                         openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
                         VPN_PID=$!
                         sleep 5
