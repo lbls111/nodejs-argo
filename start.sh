@@ -162,14 +162,15 @@ main().catch(e => { console.error(e.message); process.exit(1); });
 " 2>/dev/null
 }
 
-# 5c. 获取节点：优先缓存，失败才爬取
+# 5c. 获取节点：优先缓存，失败才从本地 vpngate-server 获取
 NODE_JSON=""
 if load_cached_node; then
     NODE_JSON="$CACHED_IP"
 fi
 
 if [ -z "$NODE_JSON" ]; then
-    NODE_JSON=$(fetch_vpngate_node)
+    # 从本地 vpngate-server 获取（已确认有节点）
+    NODE_JSON=$(curl -s --max-time 10 http://127.0.0.1:3001/node 2>/dev/null)
 fi
 
 if [ -z "$NODE_JSON" ]; then
@@ -313,8 +314,8 @@ while true; do
                     fi
                 fi
 
-                # 缓存失败，爬取新节点
-                NEW_NODE=$(fetch_vpngate_node 2>/dev/null)
+                # 缓存失败，从本地 vpngate-server 获取新节点
+                NEW_NODE=$(curl -s --max-time 10 http://127.0.0.1:3001/node 2>/dev/null)
                 if [ -n "$NEW_NODE" ]; then
                     NEW_B64=$(echo "$NEW_NODE" | node -e "const d=require('fs').readFileSync(0,'utf8');const j=JSON.parse(d);process.stdout.write(j.openvpn||'')")
                     if [ -n "$NEW_B64" ]; then

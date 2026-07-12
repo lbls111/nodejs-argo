@@ -47,6 +47,26 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
+    if (url === '/node') {
+        const nodes = crawler.usableNodes;
+        if (nodes.length === 0) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'no nodes available' }));
+            return;
+        }
+        // 随机选一个（避免总是用同一个）
+        const node = nodes[Math.floor(Math.random() * nodes.length)];
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            ip: node.ip,
+            country: node.country,
+            score: node.score,
+            speed: node.speed,
+            openvpn: node.ovpn ? Buffer.from(node.ovpn).toString('base64') : ''
+        }));
+        return;
+    }
+
     if (url === '/refresh' && req.method === 'POST') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('Refresh triggered');
