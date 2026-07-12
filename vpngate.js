@@ -50,6 +50,15 @@ class VpngateCrawler {
         });
     }
 
+    parseOvpnPort(ovpn) {
+        if (!ovpn) return 443;
+        const m = ovpn.match(/^remote\s+\S+\s+(\d+)/m);
+        if (m) return parseInt(m[1], 10) || 443;
+        const p = ovpn.match(/^port\s+(\d+)/m);
+        if (p) return parseInt(p[1], 10) || 443;
+        return 443;
+    }
+
     async fetchNodes() {
         try {
             const raw = await this.httpGet(VPNGATE_API);
@@ -61,13 +70,17 @@ class VpngateCrawler {
                 if (parts.length < 15) continue;
                 try {
                     const b64 = parts[parts.length - 1].trim();
+                    const ovpn = b64 ? Buffer.from(b64, 'base64').toString('utf-8') : '';
+                    const ip = (parts[1] || '').trim();
+                    if (!ip || !ovpn) continue;
                     nodes.push({
-                        ip: parts[1],
-                        country: parts[6],
+                        ip,
+                        country: (parts[6] || '').trim() || 'XX',
                         ping: parseInt(parts[3]) || 9999,
                         speed: parseInt(parts[4]) || 0,
                         score: parseInt(parts[2]) || 0,
-                        ovpn: b64 ? Buffer.from(b64, 'base64').toString('utf-8') : ''
+                        port: this.parseOvpnPort(ovpn),
+                        ovpn
                     });
                 } catch (_) { }
             }
@@ -80,35 +93,38 @@ class VpngateCrawler {
     }
 
     async filterAlive(nodes) {
-        // 过滤掉没有 tls-auth/tls-crypt 的节点（openvpn2socks 强制要求）
-        const withTls = nodes.filter(n => /tls-auth|tls-crypt/.test(n.ovpn));
-        const withoutTls = nodes.length - withTls.length;
-        if (withoutTls > 0) {
-            console.log(`[VPN-Gate] 过滤无 TLS 认证节点: ${withoutTls}/${nodes.length}`);
-        }
-        // 优先使用有 tls-auth 的节点；如果没有，回退到全部节点（尝试注入）
-        const candidates = withTls.length > 0 ? withTls : nodes;
-
-        const testCount = Math.min(candidates.length, 100);
-        const toTest = candidates.slice(0, testCount);
+        // VPN Gate 多为 UDP OpenVPN：TCP 探活仅作软偏好，全失败时回退高分节点
+        // tls-auth 由 start.sh 注入 ta.key，不在此硬过滤
+        const sorted = [...nodes].sort((a, b) => (b.score - a.score) || (a.ping - b.ping));
+        const testCount = Math.min(sorted.length, 100);
+        const toTest = sorted.slice(0, testCount);
         const alive = [];
         let tested = 0;
+
+        console.log(`[VPN-Gate] Probing ${testCount}/${nodes.length} nodes (TCP soft-check on real ports)...`);
 
         for (let i = 0; i < toTest.length; i += BATCH_SIZE) {
             const batch = toTest.slice(i, i + BATCH_SIZE);
             const results = await Promise.all(batch.map(async (node) => {
-                const ok = await this.tcpTest(node.ip);
+                const ok = await this.tcpTest(node.ip, node.port || 443);
                 tested++;
                 return ok ? node : null;
             }));
             results.filter(Boolean).forEach(n => alive.push(n));
-            if (tested % 30 === 0) {
-                console.log(`[VPN-Gate] Testing: ${tested}/${testCount}, alive: ${alive.length}`);
+            if (tested % 30 === 0 || tested === testCount) {
+                console.log(`[VPN-Gate] Testing: ${tested}/${testCount}, tcp-alive: ${alive.length}`);
             }
         }
 
-        alive.sort((a, b) => (b.score - a.score) || (a.ping - b.ping));
-        return alive.slice(0, MAX_NODES);
+        if (alive.length > 0) {
+            alive.sort((a, b) => (b.score - a.score) || (a.ping - b.ping));
+            return alive.slice(0, MAX_NODES);
+        }
+
+        // TCP 全失败（常见：UDP-only）：直接取高分节点，交给 openvpn2socks 真连接
+        const fallback = sorted.slice(0, MAX_NODES);
+        console.log(`[VPN-Gate] TCP 全失败，回退高分节点 ${fallback.length} 个（UDP OpenVPN 正常）`);
+        return fallback;
     }
 
     buildSub(nodes) {
@@ -150,17 +166,14 @@ class VpngateCrawler {
             }
             console.log(`[VPN-Gate] Fetched ${allNodes.length} nodes`);
 
-            // 只保留目标国家（HK/US），过滤掉 JP/KR/SG/TW 等
-            const ALLOWED_COUNTRIES = ['HK', 'US'];
-            const nodes = allNodes.filter(n => ALLOWED_COUNTRIES.includes(n.country));
-            console.log(`[VPN-Gate] 国家过滤后: ${nodes.length}/${allNodes.length} (${ALLOWED_COUNTRIES.join(',')})`);
-            if (nodes.length === 0) {
-                console.log('[VPN-Gate] 无目标国家节点，回退到全部节点');
-                // 回退：至少用全部节点
-                nodes.push(...allNodes);
+            // 不限国家：任意连通节点均可（VPN Gate 多数为 JP）
+            const byCountry = {};
+            for (const n of allNodes) {
+                byCountry[n.country] = (byCountry[n.country] || 0) + 1;
             }
+            console.log(`[VPN-Gate] 国家分布: ${Object.entries(byCountry).map(([k, v]) => `${k}:${v}`).join(', ')}`);
 
-            const alive = await this.filterAlive(nodes);
+            const alive = await this.filterAlive(allNodes);
             if (alive.length === 0) {
                 console.log('[VPN-Gate] No alive nodes');
                 return false;

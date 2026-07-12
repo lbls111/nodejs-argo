@@ -115,47 +115,55 @@ function tcpProbe(ip, port = 443) {
     });
 }
 
+function parsePort(b64) {
+    try {
+        const ovpn = Buffer.from(b64, 'base64').toString('utf-8');
+        const m = ovpn.match(/^remote\\s+\\S+\\s+(\\d+)/m);
+        if (m) return parseInt(m[1], 10) || 443;
+    } catch (_) {}
+    return 443;
+}
+
 async function main() {
     const raw = await fetchNodes();
-    const lines = raw.trim().split('\n');
+    const lines = raw.trim().split('\\n');
     const allNodes = [];
 
     for (let i = 2; i < lines.length; i++) {
         const parts = lines[i].split(',');
         if (parts.length < 15) continue;
-        const country = parts[5]?.trim();
-        if (country !== 'HK' && country !== 'US') continue;
+        const country = parts[6]?.trim() || 'XX';
         const ip = parts[1]?.trim();
         const score = parseInt(parts[2]) || 0;
         const speed = parseInt(parts[4]) || 0;
-        const openvpn = parts[14]?.trim();
+        const openvpn = parts[parts.length - 1]?.trim();
         if (!ip || !openvpn) continue;
-        allNodes.push({ ip, country, score, speed, openvpn });
+        const port = parsePort(openvpn);
+        allNodes.push({ ip, country, score, speed, openvpn, port });
     }
 
     if (allNodes.length === 0) {
-        console.error('No HK/US nodes found');
+        console.error('No nodes found');
         process.exit(1);
     }
 
-    // 按 score 降序排序，取前 $SCAN_SAMPLE_SIZE 个候选
+    // 不限国家：按 score 取候选，TCP 软探测，全失败则回退最高分
     allNodes.sort((a, b) => b.score - a.score);
     const candidates = allNodes.slice(0, $SCAN_SAMPLE_SIZE);
 
-    // 串行探测，每个间隔 200-500ms 随机延迟（反扫描）
     for (const node of candidates) {
         const delay = $SCAN_DELAY_MIN + Math.random() * ($SCAN_DELAY_MAX - $SCAN_DELAY_MIN);
         await sleep(delay);
-
-        const alive = await tcpProbe(node.ip);
+        const alive = await tcpProbe(node.ip, node.port || 443);
         if (alive) {
             console.log(JSON.stringify(node));
             process.exit(0);
         }
     }
 
-    console.error('No alive nodes found in sample');
-    process.exit(1);
+    // UDP-only 节点 TCP 会失败：回退最高分节点
+    console.log(JSON.stringify(candidates[0]));
+    process.exit(0);
 }
 
 main().catch(e => { console.error(e.message); process.exit(1); });
