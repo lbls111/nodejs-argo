@@ -159,7 +159,7 @@ function ensureSocksFirst(cfg){
   }
 }
 
-// 4) Restart xray (nohup + execSync for reliable bg process on Alpine)
+// 4) Restart xray (nohup + $! for reliable PID)
 function restartXray(bin,cfgPath){
   try{execSync('pkill -f \"'+path.basename(bin)+'\"',{stdio:'ignore'})}catch(e){}
   try{execSync('pkill -f \"xray run\"',{stdio:'ignore'})}catch(e){}
@@ -167,13 +167,12 @@ function restartXray(bin,cfgPath){
   try{fs.chmodSync(bin,0o755)}catch(e){}
   log('starting: '+bin+' run -c '+cfgPath);
   try{
-    execSync('nohup '+bin+' run -c '+cfgPath+' >/dev/null 2>&1 &',{stdio:'ignore',timeout:5000});
-    const out=execSync('pgrep -f \"'+path.basename(bin)+' run -c\"',{encoding:'utf8',timeout:3000}).trim();
-    const pid=out.split(/\s/).filter(Boolean)[0];
-    if(pid){
+    const out=execSync(bin+' run -c '+cfgPath+' >/dev/null 2>&1 & echo $!',{encoding:'utf8',timeout:5000}).trim();
+    const pid=out.split(/\\s/).filter(Boolean).pop();
+    if(pid&&/^\\d+$/.test(pid)){
       log('started PID: '+pid);
       try{fs.writeFileSync('/tmp/xray.pid',String(pid),'utf8');log('pid written: /tmp/xray.pid='+pid)}catch(e){}
-    } else{log('WARNING: xray PID not found after start')}
+    } else{log('WARNING: xray PID not found, pgrep output: '+out)}
   }catch(e){log('start error: '+e.message)}
 }
 
