@@ -28,8 +28,10 @@ RUN grep -q 'AES-128-CBC' pkg/ovpn/parse.go \
  && grep -q 'NewCBCHMAC' internal/data/slot.go \
  && grep -q 'IsCBCCipher' internal/session/session.go \
  && grep -q 'IsCBCCipher' internal/session/rekey.go \
+ && grep -q 'plainControlWrapper' internal/session/session.go \
  && test -f internal/data/cbchmac.go \
- && echo "[verify] source-level CBC patch markers present"
+ && test -f internal/session/plainctrl.go \
+ && echo "[verify] source-level CBC + plain-control patch markers present"
 
 # 编译 openvpn2socks（独立模块，需从子目录构建）
 WORKDIR /src/cmd/openvpn2socks

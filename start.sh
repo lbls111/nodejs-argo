@@ -199,21 +199,8 @@ else
 
         echo "[5] 选择节点: $NODE_IP ($NODE_COUNTRY)"
 
-        # 下载 VPN Gate 统一 TLS 密钥
-        if [ ! -s /tmp/ta.key ]; then
-            curl -s -o /tmp/ta.key --max-time 10 "https://www.vpngate.net/keys/ta.key" 2>/dev/null
-        fi
-
-        # 如果 config 没有 tls-auth/tls-crypt，自动注入（openvpn2socks 强制要求）
-        if ! grep -q "tls-auth\|tls-crypt" /tmp/vpn-config.ovpn 2>/dev/null; then
-            if [ -s /tmp/ta.key ]; then
-                echo "tls-auth /tmp/ta.key 1" >> /tmp/vpn-config.ovpn
-                echo "[5] 已注入 tls-auth 到配置"
-            fi
-        fi
-
-        # 清理可能导致问题的指令（openvpn2socks 不支持 comp-lzo 和 compress）
-        # cipher 和 auth 保留 — 库已打补丁支持 AES-128-CBC + SHA1
+        # VPN Gate/SoftEther 配置无 tls-auth；库已补丁支持 plain control channel
+        # 清理 openvpn2socks 不支持的指令（comp-lzo/compress）；保留 cipher/auth
         node -e "
           const f='/tmp/vpn-config.ovpn';
           let c=require('fs').readFileSync(f,'utf8');
@@ -223,8 +210,8 @@ else
           require('fs').writeFileSync(f,c);
         "
 
-        # 启动 openvpn2socks
-        openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
+        # 启动 openvpn2socks（plain control + CBC data channel）
+        openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -allow-no-server-identity &
         VPN_PID=$!
 
         # 等待 SOCKS5 就绪
@@ -335,12 +322,8 @@ while true; do
                     NEW_B64=$(echo "$CACHED" | node -e "const d=require('fs').readFileSync(0,'utf8');const j=JSON.parse(d);process.stdout.write(j.openvpn||'')")
                     if [ -n "$NEW_B64" ]; then
                         echo "$NEW_B64" | node -e "const d=require('fs').readFileSync(0,'utf8');process.stdout.write(Buffer.from(d.trim(),'base64').toString('utf-8'))" > /tmp/vpn-config.ovpn
-                        # 注入 tls-auth + 清理 comp-lzo/compress
-                        if ! grep -q "tls-auth\|tls-crypt" /tmp/vpn-config.ovpn 2>/dev/null && [ -s /tmp/ta.key ]; then
-                            echo "tls-auth /tmp/ta.key 1" >> /tmp/vpn-config.ovpn
-                        fi
                         node -e "const f='/tmp/vpn-config.ovpn';let c=require('fs').readFileSync(f,'utf8');c=c.replace(/\r\n/g,'\n').replace(/^(comp-lzo|compress|keysize)\b.*$/gm,'');require('fs').writeFileSync(f,c)"
-                        openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
+                        openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -allow-no-server-identity &
                         VPN_PID=$!
                         sleep 5
                         if nc -z 127.0.0.1 1080 2>/dev/null; then
@@ -359,12 +342,8 @@ while true; do
                         echo "$NEW_B64" | node -e "const d=require('fs').readFileSync(0,'utf8');process.stdout.write(Buffer.from(d.trim(),'base64').toString('utf-8'))" > /tmp/vpn-config.ovpn
                         NEW_IP=$(echo "$NEW_NODE" | node -e "const d=require('fs').readFileSync(0,'utf8');const j=JSON.parse(d);process.stdout.write(j.ip||'')")
                         echo "[probe] 切换到新节点: $NEW_IP"
-                        # 注入 tls-auth + 清理 comp-lzo/compress
-                        if ! grep -q "tls-auth\|tls-crypt" /tmp/vpn-config.ovpn 2>/dev/null && [ -s /tmp/ta.key ]; then
-                            echo "tls-auth /tmp/ta.key 1" >> /tmp/vpn-config.ovpn
-                        fi
                         node -e "const f='/tmp/vpn-config.ovpn';let c=require('fs').readFileSync(f,'utf8');c=c.replace(/\r\n/g,'\n').replace(/^(comp-lzo|compress|keysize)\b.*$/gm,'');require('fs').writeFileSync(f,c)"
-                        openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
+                        openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -allow-no-server-identity &
                         VPN_PID=$!
                         sleep 5
                         if nc -z 127.0.0.1 1080 2>/dev/null; then

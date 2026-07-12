@@ -15,10 +15,11 @@ for f in pkg/ovpn/parse.go internal/control/keys.go internal/data/slot.go intern
     echo "[patch]   OK: $f ($(wc -c < "$f") bytes)"
 done
 
-# 1. Copy cbchmac.go
+# 1. Copy new source files
 cp /patches/cbchmac.go internal/data/cbchmac.go
-echo "[patch] Copied cbchmac.go"
+cp /patches/plainctrl.go internal/session/plainctrl.go
+echo "[patch] Copied cbchmac.go + plainctrl.go"
 
 # 2. Run unified Python patcher
 python3 /patches/patch_all.py
-echo "[patch] ====== CBC+HMAC patch complete ======"
+echo "[patch] ====== CBC+HMAC + plain-control patch complete ======"

@@ -440,5 +440,146 @@ write(path, src)
 must_contain(read(path), path, "IsCBCCipher", "rekey.go has IsCBCCipher")
 must_contain(read(path), path, "slotCfg", "rekey.go uses slotCfg")
 
+# ── 6. session.go: allow unprotected control channel (VPN Gate / SoftEther) ──
+path = "internal/session/session.go"
+src = read(path)
+
+old_val = '''\tif set != 1 {
+\t\treturn errors.New("session: exactly one control-channel key required (tls-crypt v1, tls-crypt-v2 or tls-auth)")
+\t}
+\treturn nil
+}'''
+new_val = '''\tif set > 1 {
+\t\treturn errors.New("session: at most one control-channel key (tls-crypt v1, tls-crypt-v2 or tls-auth)")
+\t}
+\t// set == 0 is allowed: plain control channel (VPN Gate / SoftEther OpenVPN)
+\treturn nil
+}'''
+src = must_replace(src, path, old_val, new_val, "session.go validateConfig allow plain")
+
+old_bw = '''func buildWrapper(cfg Config) (controlWrapper, proto.Opcode, error) {
+\tif len(cfg.TLSAuth) > 0 {
+\t\trawKey, err := tlscrypt.ParseStaticKey(cfg.TLSAuth)
+\t\tif err != nil {
+\t\t\treturn nil, 0, fmt.Errorf("session: parse tls-auth key: %w", err)
+\t\t}
+\t\t// tls-auth clients use the Inverse orientation in every real-world
+\t\t// profile (`key-direction 1`), mirroring the tls-crypt client. We do
+\t\t// not yet distinguish a client-side `key-direction 0` (Normal); see
+\t\t// Config.KeyDirection.
+\t\tauth, err := tlsauth.New(rawKey, tlscrypt.DirectionInverse, cfg.Auth)
+\t\tif err != nil {
+\t\t\treturn nil, 0, fmt.Errorf("session: init tls-auth: %w", err)
+\t\t}
+\t\treturn auth, proto.PControlHardResetClientV2, nil
+\t}
+\tif len(cfg.TLSCryptV2) > 0 {
+\t\tbundle, err := tlscrypt.ParseClientBundleV2(cfg.TLSCryptV2)
+\t\tif err != nil {
+\t\t\treturn nil, 0, fmt.Errorf("session: parse tls-crypt-v2 bundle: %w", err)
+\t\t}
+\t\tw, err := tlscrypt.New(bundle.Kc, tlscrypt.DirectionInverse)
+\t\tif err != nil {
+\t\t\treturn nil, 0, fmt.Errorf("session: init tls-crypt-v2: %w", err)
+\t\t}
+\t\tw.SetFirstWrapTrailer(bundle.WKc)
+\t\treturn w, proto.PControlHardResetClientV3, nil
+\t}
+\trawKey, err := tlscrypt.ParseStaticKey(cfg.TLSCryptV1)
+\tif err != nil {
+\t\treturn nil, 0, fmt.Errorf("session: parse tls-crypt key: %w", err)
+\t}
+\tw, err := tlscrypt.New(rawKey, tlscrypt.DirectionInverse)
+\tif err != nil {
+\t\treturn nil, 0, fmt.Errorf("session: init tls-crypt: %w", err)
+\t}
+\treturn w, proto.PControlHardResetClientV2, nil
+}'''
+new_bw = '''func buildWrapper(cfg Config) (controlWrapper, proto.Opcode, error) {
+\tif len(cfg.TLSAuth) > 0 {
+\t\trawKey, err := tlscrypt.ParseStaticKey(cfg.TLSAuth)
+\t\tif err != nil {
+\t\t\treturn nil, 0, fmt.Errorf("session: parse tls-auth key: %w", err)
+\t\t}
+\t\t// tls-auth clients use the Inverse orientation in every real-world
+\t\t// profile (`key-direction 1`), mirroring the tls-crypt client. We do
+\t\t// not yet distinguish a client-side `key-direction 0` (Normal); see
+\t\t// Config.KeyDirection.
+\t\tauth, err := tlsauth.New(rawKey, tlscrypt.DirectionInverse, cfg.Auth)
+\t\tif err != nil {
+\t\t\treturn nil, 0, fmt.Errorf("session: init tls-auth: %w", err)
+\t\t}
+\t\treturn auth, proto.PControlHardResetClientV2, nil
+\t}
+\tif len(cfg.TLSCryptV2) > 0 {
+\t\tbundle, err := tlscrypt.ParseClientBundleV2(cfg.TLSCryptV2)
+\t\tif err != nil {
+\t\t\treturn nil, 0, fmt.Errorf("session: parse tls-crypt-v2 bundle: %w", err)
+\t\t}
+\t\tw, err := tlscrypt.New(bundle.Kc, tlscrypt.DirectionInverse)
+\t\tif err != nil {
+\t\t\treturn nil, 0, fmt.Errorf("session: init tls-crypt-v2: %w", err)
+\t\t}
+\t\tw.SetFirstWrapTrailer(bundle.WKc)
+\t\treturn w, proto.PControlHardResetClientV3, nil
+\t}
+\tif len(cfg.TLSCryptV1) > 0 {
+\t\trawKey, err := tlscrypt.ParseStaticKey(cfg.TLSCryptV1)
+\t\tif err != nil {
+\t\t\treturn nil, 0, fmt.Errorf("session: parse tls-crypt key: %w", err)
+\t\t}
+\t\tw, err := tlscrypt.New(rawKey, tlscrypt.DirectionInverse)
+\t\tif err != nil {
+\t\t\treturn nil, 0, fmt.Errorf("session: init tls-crypt: %w", err)
+\t\t}
+\t\treturn w, proto.PControlHardResetClientV2, nil
+\t}
+\t// No control-channel key: plain OpenVPN (VPN Gate / SoftEther)
+\treturn plainControlWrapper{}, proto.PControlHardResetClientV2, nil
+}'''
+src = must_replace(src, path, old_bw, new_bw, "session.go buildWrapper plain fallback")
+write(path, src)
+must_contain(read(path), path, "plainControlWrapper{}", "session.go uses plainControlWrapper")
+
+# ── 7. openvpn.go: validateControlChannel allow zero keys ─────────────────
+path = "openvpn.go"
+src = read(path)
+old_vcc = '''\tswitch {
+\tcase set == 0:
+\t\treturn errors.New("openvpn: a control-channel key is required (set one of TLSCryptV1, TLSCryptV2 or TLSAuth)")
+\tcase set > 1:
+\t\treturn errors.New("openvpn: only one control-channel key may be set (TLSCryptV1, TLSCryptV2 or TLSAuth)")
+\t}
+\treturn nil
+}'''
+new_vcc = '''\tswitch {
+\tcase set > 1:
+\t\treturn errors.New("openvpn: only one control-channel key may be set (TLSCryptV1, TLSCryptV2 or TLSAuth)")
+\t}
+\t// set == 0 allowed: plain control channel for SoftEther/VPN Gate profiles
+\treturn nil
+}'''
+src = must_replace(src, path, old_vcc, new_vcc, "openvpn.go validateControlChannel allow plain")
+write(path, src)
+must_contain(read(path), path, "plain control channel for SoftEther", "openvpn.go plain allowed")
+
+# ── 8. parse.go: finalize allow missing control-channel key ───────────────
+path = "pkg/ovpn/parse.go"
+src = read(path)
+old_fin = '''\tswitch {
+\tcase ctrlKeys == 0:
+\t\treturn nil, errors.New("missing control-channel protection: provide tls-crypt, tls-crypt-v2 or tls-auth (this library requires a protected control channel)")
+\tcase ctrlKeys > 1:
+\t\treturn nil, errors.New("multiple control-channel keys set; use exactly one of tls-crypt, tls-crypt-v2 or tls-auth")
+\t}'''
+new_fin = '''\tswitch {
+\tcase ctrlKeys > 1:
+\t\treturn nil, errors.New("multiple control-channel keys set; use exactly one of tls-crypt, tls-crypt-v2 or tls-auth")
+\t}
+\t// ctrlKeys == 0 allowed: SoftEther/VPN Gate .ovpn has no tls-auth/tls-crypt'''
+src = must_replace(src, path, old_fin, new_fin, "parse.go finalize allow plain")
+write(path, src)
+must_contain(read(path), path, "SoftEther/VPN Gate", "parse.go plain allowed")
+
 print("[patch] ALL patches applied and verified successfully")
-print("[patch] marker: CBC_PATCH_V2_VERIFIED")
+print("[patch] marker: CBC_PLAINCTRL_PATCH_V3_VERIFIED")

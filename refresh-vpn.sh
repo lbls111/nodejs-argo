@@ -98,12 +98,8 @@ NODE_COUNTRY=$(echo "$NODE_DATA" | node -e "const d=require('fs').readFileSync(0
 
 echo "[$(date)] 切换到节点: $NODE_IP ($NODE_COUNTRY)"
 
-# 启动新的 openvpn2socks
-if [ -s /tmp/ta.key ]; then
-    openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
-else
-    openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn &
-fi
+# 启动新的 openvpn2socks（VPN Gate 无 tls-auth，使用 plain control channel）
+openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -allow-no-server-identity &
 VPN_PID=$!
 
 # 等待就绪
