@@ -191,30 +191,17 @@ else
 
         echo "[5] 选择节点: $NODE_IP ($NODE_COUNTRY)"
 
-        # 用 Node.js 提取 TLS 密钥（比 sed 更可靠，处理各种行尾和格式）
-        rm -f /tmp/ta.key /tmp/tc.key
-        TLS_FLAG=""
-        TLS_FILE=""
-        node -e "
-const fs = require('fs');
-try {
-    const c = fs.readFileSync('/tmp/vpn-config.ovpn','utf8').replace(/\r/g,'');
-    const keyRe = /-----BEGIN OpenVPN Static[^\n]*\n[\s\S]*?-----END OpenVPN Static[^\n]*-----/;
-    const m = c.match(keyRe);
-    if (m) {
-        fs.writeFileSync('/tmp/ta.key', m[0] + '\n');
-        process.stdout.write('ok');
-    } else {
-        process.stdout.write('none');
-    }
-} catch(e) { process.stdout.write('err'); }
-" 2>/dev/null
+        # 下载 VPN Gate 统一 TLS 密钥（配置文件不内联密钥，需单独下载）
+        if [ ! -s /tmp/ta.key ]; then
+            curl -s -o /tmp/ta.key --max-time 10 "https://www.vpngate.net/keys/ta.key" 2>/dev/null
+        fi
 
+        # 启动 openvpn2socks
         if [ -s /tmp/ta.key ]; then
-            echo "[5] TLS 密钥提取成功"
+            echo "[5] TLS 密钥就绪"
             openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key &
         else
-            echo "[5] 未找到 TLS 密钥，尝试无认证连接"
+            echo "[5] TLS 密钥下载失败"
             openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn &
         fi
         VPN_PID=$!
@@ -327,14 +314,7 @@ while true; do
                     NEW_B64=$(echo "$CACHED" | node -e "const d=require('fs').readFileSync(0,'utf8');const j=JSON.parse(d);process.stdout.write(j.openvpn||'')")
                     if [ -n "$NEW_B64" ]; then
                         echo "$NEW_B64" | node -e "const d=require('fs').readFileSync(0,'utf8');process.stdout.write(Buffer.from(d.trim(),'base64').toString('utf-8'))" > /tmp/vpn-config.ovpn
-                        # 提取 TLS 密钥
-                        rm -f /tmp/ta.key
-                        node -e "const fs=require('fs');try{const c=fs.readFileSync('/tmp/vpn-config.ovpn','utf8').replace(/\r/g,'');const m=c.match(/-----BEGIN OpenVPN Static[^\n]*\n[\s\S]*?-----END OpenVPN Static[^\n]*-----/);if(m){fs.writeFileSync('/tmp/ta.key',m[0]+'\n');process.stdout.write('ok')}else{process.stdout.write('none')}}catch(e){process.stdout.write('err')}" 2>/dev/null
-                        if [ -s /tmp/ta.key ]; then
-                            openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key &
-                        else
-                            openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn &
-                        fi
+                        [ -s /tmp/ta.key ] && openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key &
                         VPN_PID=$!
                         sleep 5
                         if nc -z 127.0.0.1 1080 2>/dev/null; then
@@ -353,13 +333,7 @@ while true; do
                         echo "$NEW_B64" | node -e "const d=require('fs').readFileSync(0,'utf8');process.stdout.write(Buffer.from(d.trim(),'base64').toString('utf-8'))" > /tmp/vpn-config.ovpn
                         NEW_IP=$(echo "$NEW_NODE" | node -e "const d=require('fs').readFileSync(0,'utf8');const j=JSON.parse(d);process.stdout.write(j.ip||'')")
                         echo "[probe] 切换到新节点: $NEW_IP"
-                        # 提取 TLS 密钥
-                        rm -f /tmp/ta.key
-                        node -e "const fs=require('fs');try{const c=fs.readFileSync('/tmp/vpn-config.ovpn','utf8').replace(/\r/g,'');const m=c.match(/-----BEGIN OpenVPN Static[^\n]*\n[\s\S]*?-----END OpenVPN Static[^\n]*-----/);if(m){fs.writeFileSync('/tmp/ta.key',m[0]+'\n');process.stdout.write('ok')}else{process.stdout.write('none')}}catch(e){process.stdout.write('err')}" 2>/dev/null
-                        if [ -s /tmp/ta.key ]; then
-                            openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key &
-                        else
-                            openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn &
+                        [ -s /tmp/ta.key ] && openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key &
                         fi
                         VPN_PID=$!
                         sleep 5
