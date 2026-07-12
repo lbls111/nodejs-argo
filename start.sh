@@ -191,26 +191,32 @@ else
 
         echo "[5] 选择节点: $NODE_IP ($NODE_COUNTRY)"
 
-        # 提取 TLS 密钥到单独文件（openvpn2socks 要求）
-        # VPN Gate 配置中 tls-auth key 是内联的，需要提取出来
-        TLS_ARGS=""
-        if grep -q "tls-auth" /tmp/vpn-config.ovpn 2>/dev/null; then
-            # 提取 -----BEGIN OpenVPN Static key V1----- 到 -----END----- 之间的内容
-            sed -n '/BEGIN OpenVPN Static key/,/END OpenVPN Static key/p' /tmp/vpn-config.ovpn > /tmp/ta.key
-            if [ -s /tmp/ta.key ]; then
-                TLS_ARGS="-tls-auth /tmp/ta.key"
-                echo "[5] 检测到 tls-auth 密钥"
-            fi
-        elif grep -q "tls-crypt" /tmp/vpn-config.ovpn 2>/dev/null; then
-            sed -n '/BEGIN OpenVPN Static/,/END OpenVPN Static/p' /tmp/vpn-config.ovpn > /tmp/tc.key
-            if [ -s /tmp/tc.key ]; then
-                TLS_ARGS="-tls-crypt /tmp/tc.key"
-                echo "[5] 检测到 tls-crypt 密钥"
-            fi
-        fi
+        # 用 Node.js 提取 TLS 密钥（比 sed 更可靠，处理各种行尾和格式）
+        rm -f /tmp/ta.key /tmp/tc.key
+        TLS_FLAG=""
+        TLS_FILE=""
+        node -e "
+const fs = require('fs');
+try {
+    const c = fs.readFileSync('/tmp/vpn-config.ovpn','utf8').replace(/\r/g,'');
+    const keyRe = /-----BEGIN OpenVPN Static[^\n]*\n[\s\S]*?-----END OpenVPN Static[^\n]*-----/;
+    const m = c.match(keyRe);
+    if (m) {
+        fs.writeFileSync('/tmp/ta.key', m[0] + '\n');
+        process.stdout.write('ok');
+    } else {
+        process.stdout.write('none');
+    }
+} catch(e) { process.stdout.write('err'); }
+" 2>/dev/null
 
-        # 启动 openvpn2socks
-        openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn $TLS_ARGS &
+        if [ -s /tmp/ta.key ]; then
+            echo "[5] TLS 密钥提取成功"
+            openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key &
+        else
+            echo "[5] 未找到 TLS 密钥，尝试无认证连接"
+            openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn &
+        fi
         VPN_PID=$!
 
         # 等待 SOCKS5 就绪
@@ -322,15 +328,13 @@ while true; do
                     if [ -n "$NEW_B64" ]; then
                         echo "$NEW_B64" | node -e "const d=require('fs').readFileSync(0,'utf8');process.stdout.write(Buffer.from(d.trim(),'base64').toString('utf-8'))" > /tmp/vpn-config.ovpn
                         # 提取 TLS 密钥
-                        TLS_ARGS=""
-                        if grep -q "tls-auth" /tmp/vpn-config.ovpn 2>/dev/null; then
-                            sed -n '/BEGIN OpenVPN Static key/,/END OpenVPN Static key/p' /tmp/vpn-config.ovpn > /tmp/ta.key
-                            [ -s /tmp/ta.key ] && TLS_ARGS="-tls-auth /tmp/ta.key"
-                        elif grep -q "tls-crypt" /tmp/vpn-config.ovpn 2>/dev/null; then
-                            sed -n '/BEGIN OpenVPN Static/,/END OpenVPN Static/p' /tmp/vpn-config.ovpn > /tmp/tc.key
-                            [ -s /tmp/tc.key ] && TLS_ARGS="-tls-crypt /tmp/tc.key"
+                        rm -f /tmp/ta.key
+                        node -e "const fs=require('fs');try{const c=fs.readFileSync('/tmp/vpn-config.ovpn','utf8').replace(/\r/g,'');const m=c.match(/-----BEGIN OpenVPN Static[^\n]*\n[\s\S]*?-----END OpenVPN Static[^\n]*-----/);if(m){fs.writeFileSync('/tmp/ta.key',m[0]+'\n');process.stdout.write('ok')}else{process.stdout.write('none')}}catch(e){process.stdout.write('err')}" 2>/dev/null
+                        if [ -s /tmp/ta.key ]; then
+                            openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key &
+                        else
+                            openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn &
                         fi
-                        openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn $TLS_ARGS &
                         VPN_PID=$!
                         sleep 5
                         if nc -z 127.0.0.1 1080 2>/dev/null; then
@@ -350,15 +354,13 @@ while true; do
                         NEW_IP=$(echo "$NEW_NODE" | node -e "const d=require('fs').readFileSync(0,'utf8');const j=JSON.parse(d);process.stdout.write(j.ip||'')")
                         echo "[probe] 切换到新节点: $NEW_IP"
                         # 提取 TLS 密钥
-                        TLS_ARGS=""
-                        if grep -q "tls-auth" /tmp/vpn-config.ovpn 2>/dev/null; then
-                            sed -n '/BEGIN OpenVPN Static key/,/END OpenVPN Static key/p' /tmp/vpn-config.ovpn > /tmp/ta.key
-                            [ -s /tmp/ta.key ] && TLS_ARGS="-tls-auth /tmp/ta.key"
-                        elif grep -q "tls-crypt" /tmp/vpn-config.ovpn 2>/dev/null; then
-                            sed -n '/BEGIN OpenVPN Static/,/END OpenVPN Static/p' /tmp/vpn-config.ovpn > /tmp/tc.key
-                            [ -s /tmp/tc.key ] && TLS_ARGS="-tls-crypt /tmp/tc.key"
+                        rm -f /tmp/ta.key
+                        node -e "const fs=require('fs');try{const c=fs.readFileSync('/tmp/vpn-config.ovpn','utf8').replace(/\r/g,'');const m=c.match(/-----BEGIN OpenVPN Static[^\n]*\n[\s\S]*?-----END OpenVPN Static[^\n]*-----/);if(m){fs.writeFileSync('/tmp/ta.key',m[0]+'\n');process.stdout.write('ok')}else{process.stdout.write('none')}}catch(e){process.stdout.write('err')}" 2>/dev/null
+                        if [ -s /tmp/ta.key ]; then
+                            openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key &
+                        else
+                            openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn &
                         fi
-                        openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn $TLS_ARGS &
                         VPN_PID=$!
                         sleep 5
                         if nc -z 127.0.0.1 1080 2>/dev/null; then
