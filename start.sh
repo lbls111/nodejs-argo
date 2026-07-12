@@ -192,7 +192,7 @@ else
         echo "[5] 选择节点: $NODE_IP ($NODE_COUNTRY)"
 
         # 启动 openvpn2socks
-        openvpn2socks -listen 0.0.0.0:1080 /tmp/vpn-config.ovpn &
+        openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn &
         VPN_PID=$!
 
         # 等待 SOCKS5 就绪
@@ -303,7 +303,7 @@ while true; do
                     NEW_B64=$(echo "$CACHED" | node -e "const d=require('fs').readFileSync(0,'utf8');const j=JSON.parse(d);process.stdout.write(j.openvpn||'')")
                     if [ -n "$NEW_B64" ]; then
                         echo "$NEW_B64" | node -e "const d=require('fs').readFileSync(0,'utf8');process.stdout.write(Buffer.from(d.trim(),'base64').toString('utf-8'))" > /tmp/vpn-config.ovpn
-                        openvpn2socks -listen 0.0.0.0:1080 /tmp/vpn-config.ovpn &
+                        openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn &
                         VPN_PID=$!
                         sleep 5
                         if nc -z 127.0.0.1 1080 2>/dev/null; then
@@ -322,7 +322,7 @@ while true; do
                         echo "$NEW_B64" | node -e "const d=require('fs').readFileSync(0,'utf8');process.stdout.write(Buffer.from(d.trim(),'base64').toString('utf-8'))" > /tmp/vpn-config.ovpn
                         NEW_IP=$(echo "$NEW_NODE" | node -e "const d=require('fs').readFileSync(0,'utf8');const j=JSON.parse(d);process.stdout.write(j.ip||'')")
                         echo "[probe] 切换到新节点: $NEW_IP"
-                        openvpn2socks -listen 0.0.0.0:1080 /tmp/vpn-config.ovpn &
+                        openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn &
                         VPN_PID=$!
                         sleep 5
                         if nc -z 127.0.0.1 1080 2>/dev/null; then

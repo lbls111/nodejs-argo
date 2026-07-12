@@ -99,7 +99,7 @@ NODE_COUNTRY=$(echo "$NODE_DATA" | node -e "const d=require('fs').readFileSync(0
 echo "[$(date)] 切换到节点: $NODE_IP ($NODE_COUNTRY)"
 
 # 启动新的 openvpn2socks
-openvpn2socks -listen 0.0.0.0:1080 /tmp/vpn-config.ovpn &
+openvpn2socks -listen 0.0.0.0:1080 -server /tmp/vpn-config.ovpn &
 VPN_PID=$!
 
 # 等待就绪
