@@ -5,8 +5,14 @@ on:
     branches: [ main ]
     paths:
       - 'Dockerfile'
-      - 'index.js'
+      - 'start.sh'
+      - 'nginx.conf'
+      - 'refresh-vpn.sh'
+      - 'modify-xray.js'
+      - 'vpngate.js'
+      - 'vpngate-server.js'
       - 'package.json'
+      - 'index.js'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
