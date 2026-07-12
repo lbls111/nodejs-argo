@@ -117,16 +117,21 @@ function findBin(configPath){
   return null
 }
 
-// 3) Reuse existing egress outbound (freedom/direct/proxy) -> SOCKS5
-// 保 tag、保路由 —— nodejs-argo 重启 xray 时读到的仍是我们的 SOCKS 配置
+// 3) Reuse existing egress outbound + fix inbound port
 function modifyConfig(cfg){
   const server={address:'$SOCKS5_HOST',port:$SOCKS5_PORT};
   const u='$SOCKS5_USER',p='$SOCKS5_PASS';
+
+  // 修正入站端口：inbound[0]（vless）从 8001 改为 3000（匹配 Railway PORT）
+  if(cfg.inbounds&&cfg.inbounds[0]&&cfg.inbounds[0].port===8001){
+    log('inbound[0] port: 8001 -> 3000');
+    cfg.inbounds[0].port=3000
+  }
+
   const socks={protocol:'socks',settings:{servers:[server]}};
   if(u&&p)socks.settings.servers[0].users=[{user:u,pass:p}];
   if(!cfg.outbounds)cfg.outbounds=[];
 
-  // 找到第一个可替换的 egress outbound（freedom/direct，跳过 dns/block/api）
   const skipTags=['dns','block','api','inbound-'];
   for(let i=0;i<cfg.outbounds.length;i++){
     const o=cfg.outbounds[i];
@@ -154,17 +159,22 @@ function ensureSocksFirst(cfg){
   }
 }
 
-// 4) Restart xray
+// 4) Restart xray (nohup + execSync for reliable bg process on Alpine)
 function restartXray(bin,cfgPath){
   try{execSync('pkill -f \"'+path.basename(bin)+'\"',{stdio:'ignore'})}catch(e){}
   try{execSync('pkill -f \"xray run\"',{stdio:'ignore'})}catch(e){}
   try{execSync('sleep 1',{stdio:'ignore'})}catch(e){}
   try{fs.chmodSync(bin,0o755)}catch(e){}
   log('starting: '+bin+' run -c '+cfgPath);
-  const c=spawn(bin,['run','-c',cfgPath],{detached:true,stdio:'ignore',cwd:path.dirname(bin)});
-  c.unref();
-  log('started PID: '+c.pid);
-  try{fs.writeFileSync('/tmp/xray.pid',String(c.pid),'utf8');log('pid written: /tmp/xray.pid='+c.pid)}catch(e){log('pid write fail: '+e.message)}
+  try{
+    execSync('nohup '+bin+' run -c '+cfgPath+' >/dev/null 2>&1 &',{stdio:'ignore',timeout:5000});
+    const out=execSync('pgrep -f \"'+path.basename(bin)+' run -c\"',{encoding:'utf8',timeout:3000}).trim();
+    const pid=out.split(/\s/).filter(Boolean)[0];
+    if(pid){
+      log('started PID: '+pid);
+      try{fs.writeFileSync('/tmp/xray.pid',String(pid),'utf8');log('pid written: /tmp/xray.pid='+pid)}catch(e){}
+    } else{log('WARNING: xray PID not found after start')}
+  }catch(e){log('start error: '+e.message)}
 }
 
 const found=findConfig();
@@ -328,7 +338,7 @@ fi
 
 echo "=========================================="
 echo "  Service started"
-  echo "  VLESS/VMess port: 3000 (direct)"
+  echo "  VLESS/VMess inbound: port 3000"
 echo "  Subscription: /sub"
 [ "$SOCKS5_READY" = "1" ] && echo "  Exit: SOCKS5 $CURRENT_EXIT_HOST:$CURRENT_EXIT_PORT ($CURRENT_EXIT_IP)" || echo "  Exit: direct (Railway)"
 echo "=========================================="
