@@ -13,6 +13,8 @@ on:
       - 'vpngate-server.js'
       - 'package.json'
       - 'index.js'
+      - 'patches/**'
+      - '.gitattributes'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
