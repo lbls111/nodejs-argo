@@ -1,7 +1,5 @@
 # ==========================================
-# nodejs-argo + 公共 SOCKS5 干净出口
-# 架构：客户端 → VLESS/VMess → Railway → SOCKS5 → 互联网
-# 无 openvpn / 无 TUN / 无 go 编译
+# nodejs-argo + 公共 SOCKS5 干净出口（inline modify）
 # ==========================================
 
 FROM node:alpine3.22
@@ -14,18 +12,15 @@ RUN apk update && apk upgrade && \
     ca-certificates netcat-openbsd nginx
 
 COPY index.js index.html package.json ./
-COPY exit-proxy.js /tmp/exit-proxy.js
-COPY modify-xray.js /tmp/modify-xray.js
+COPY exit-proxy.js /tmp/
 COPY start.sh refresh-vpn.sh ./
 
-RUN chmod +x index.js start.sh refresh-vpn.sh /tmp/modify-xray.js /tmp/exit-proxy.js && npm install
+RUN chmod +x index.js start.sh refresh-vpn.sh /tmp/exit-proxy.js && npm install
 
-# 构建时验证关键文件存在
-RUN test -f /tmp/modify-xray.js && test -f /tmp/exit-proxy.js && ls -la /tmp/*.js
+# modify-xray 已内联到 start.sh，不再需要单独文件
 
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# 3000: nginx (VLESS/VMess + 订阅)
 EXPOSE 3000/tcp
 
 ENV VPNGATE_PORT=3001
