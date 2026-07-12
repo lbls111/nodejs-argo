@@ -16,13 +16,32 @@ RUN apk add --no-cache git python3
 # 克隆 go-openvpn
 RUN git clone --depth 1 https://github.com/n0madic/go-openvpn.git .
 
-# 复制并应用 CBC+HMAC 补丁
+# 复制并应用 CBC+HMAC 补丁（失败即中断构建）
 COPY patches/ /patches/
 RUN chmod +x /patches/apply.sh && sh /patches/apply.sh
+
+# 源码级验证：确认补丁已写入（防止静默失败）
+RUN grep -q 'AES-128-CBC' pkg/ovpn/parse.go \
+ && grep -q 'supported:' pkg/ovpn/parse.go \
+ && grep -q 'IsCBCCipher' internal/control/keys.go \
+ && grep -q 'isAEAD' internal/data/slot.go \
+ && grep -q 'NewCBCHMAC' internal/data/slot.go \
+ && grep -q 'IsCBCCipher' internal/session/session.go \
+ && grep -q 'IsCBCCipher' internal/session/rekey.go \
+ && test -f internal/data/cbchmac.go \
+ && echo "[verify] source-level CBC patch markers present"
 
 # 编译 openvpn2socks（独立模块，需从子目录构建）
 WORKDIR /src/cmd/openvpn2socks
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/openvpn2socks .
+
+# 二进制级验证：错误信息字符串必须是 patched 版本（grep -a 读二进制，不依赖 binutils）
+RUN (grep -a -q 'supported: AES-256-GCM' /out/openvpn2socks \
+    && ! grep -a -q 'AEAD only: AES-256-GCM' /out/openvpn2socks) \
+ || (echo "[verify FATAL] binary still has unpatched cipher error string" \
+     && grep -a -oE '.{0,40}(AES-128|AEAD only|supported:).{0,40}' /out/openvpn2socks || true \
+     && exit 1) \
+ && echo "[verify] binary contains patched cipher strings"
 
 # Stage 2: 运行环境
 FROM node:alpine3.22
