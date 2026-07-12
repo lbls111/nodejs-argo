@@ -117,32 +117,41 @@ function findBin(configPath){
   return null
 }
 
-// 3) Write config
+// 3) Reuse existing egress outbound (freedom/direct/proxy) -> SOCKS5
+// 保 tag、保路由 —— nodejs-argo 重启 xray 时读到的仍是我们的 SOCKS 配置
 function modifyConfig(cfg){
-  if(!cfg.outbounds)cfg.outbounds=[];
-  cfg.outbounds=cfg.outbounds.filter(o=>o.tag!==tag&&o.tag!=='vpn-gate');
   const server={address:'$SOCKS5_HOST',port:$SOCKS5_PORT};
   const u='$SOCKS5_USER',p='$SOCKS5_PASS';
-  if(u&&p)server.users=[{user:u,pass:p}];
-  cfg.outbounds.unshift({protocol:'socks',tag:tag,settings:{servers:[server]}});
-  // 替换每个非内部出站的路由目标为 clean-exit
-  if(!cfg.routing)cfg.routing={};
-  if(!cfg.routing.rules)cfg.routing.rules=[];
-  const internalTags=['dns','block','api','inbound-','in-'];
-  for(const r of cfg.routing.rules){
-    if(!internalTags.some(t=>r.outboundTag&&r.outboundTag.startsWith(t))){
-      const old=r.outboundTag;
-      r.outboundTag=tag;
-      if(old&&old!==tag)log('routing: '+old+' -> '+tag)
-    }
+  const socks={protocol:'socks',settings:{servers:[server]}};
+  if(u&&p)socks.settings.servers[0].users=[{user:u,pass:p}];
+  if(!cfg.outbounds)cfg.outbounds=[];
+
+  // 找到第一个可替换的 egress outbound（freedom/direct，跳过 dns/block/api）
+  const skipTags=['dns','block','api','inbound-'];
+  for(let i=0;i<cfg.outbounds.length;i++){
+    const o=cfg.outbounds[i];
+    if(!o)continue;
+    if(o.protocol==='dns'||o.protocol==='blackhole')continue;
+    if(o.tag&&skipTags.some(k=>o.tag.startsWith(k)))continue;
+    // 替换协议与设置，保留原 tag
+    log('outbound: replace "'+o.tag+'" ('+o.protocol+') -> socks -> '+server.address+':'+server.port);
+    cfg.outbounds[i]={...socks,tag:o.tag};
+    log('done: '+o.tag+' -> SOCKS5');
+    return cfg
   }
-  // 兜底：所有 tcp/udp 走 clean-exit
-  if(!cfg.routing.rules.some(r=>r.outboundTag===tag)){
-    cfg.routing.rules.push({type:'field',network:'tcp,udp',outboundTag:tag});
-    log('routing: added catch-all -> '+tag)
-  }
-  log('added clean-exit outbound: '+socksAddr)
+  // fallback：没有可替换的出站，追加新出站
+  cfg.outbounds.unshift({...socks,tag:tag});
+  log('done: added SOCKS5 outbound (no egress found)');
   return cfg
+}
+// Ensure SOCKS outbound is at index 0 (default egress for unmatched routing)
+function ensureSocksFirst(cfg){
+  const idx=cfg.outbounds.findIndex(o=>o&&o.protocol==='socks');
+  if(idx>0){
+    const our=cfg.outbounds.splice(idx,1)[0];
+    cfg.outbounds.unshift(our);
+    log('moved SOCKS5 to index 0 (default egress)')
+  }
 }
 
 // 4) Restart xray
@@ -165,6 +174,7 @@ if(!found){
   process.exit(1)
 }
 const modified=modifyConfig(found.config);
+ensureSocksFirst(modified);
 const backup=found.path+'.backup';
 try{fs.copyFileSync(found.path,backup);log('backed up: '+backup)}catch(e){log('backup fail: '+e.message)}
 fs.writeFileSync(found.path,JSON.stringify(modified,null,2),'utf-8');
