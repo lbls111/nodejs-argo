@@ -204,6 +204,10 @@ else
             fi
         fi
 
+        # 清理不兼容的指令（openvpn2socks 只支持 AEAD + NCP 协商）
+        # 去掉 cipher（让 NCP 协商 AEAD）、auth（AEAD 自带 MAC）、comp-lzo、compress
+        sed -i '/^cipher /d;/^auth /d;/^comp-lzo/d;/^compress /d;/^keysize /d;/^tls-cipher /d' /tmp/vpn-config.ovpn
+
         # 启动 openvpn2socks
         openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
         VPN_PID=$!
@@ -316,10 +320,11 @@ while true; do
                     NEW_B64=$(echo "$CACHED" | node -e "const d=require('fs').readFileSync(0,'utf8');const j=JSON.parse(d);process.stdout.write(j.openvpn||'')")
                     if [ -n "$NEW_B64" ]; then
                         echo "$NEW_B64" | node -e "const d=require('fs').readFileSync(0,'utf8');process.stdout.write(Buffer.from(d.trim(),'base64').toString('utf-8'))" > /tmp/vpn-config.ovpn
-                        # 注入 tls-auth（如果缺失）
+                        # 注入 tls-auth + 清理不兼容指令
                         if ! grep -q "tls-auth\|tls-crypt" /tmp/vpn-config.ovpn 2>/dev/null && [ -s /tmp/ta.key ]; then
                             echo "tls-auth /tmp/ta.key 1" >> /tmp/vpn-config.ovpn
                         fi
+                        sed -i '/^cipher /d;/^auth /d;/^comp-lzo/d;/^compress /d;/^keysize /d;/^tls-cipher /d' /tmp/vpn-config.ovpn
                         openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
                         VPN_PID=$!
                         sleep 5
@@ -339,10 +344,11 @@ while true; do
                         echo "$NEW_B64" | node -e "const d=require('fs').readFileSync(0,'utf8');process.stdout.write(Buffer.from(d.trim(),'base64').toString('utf-8'))" > /tmp/vpn-config.ovpn
                         NEW_IP=$(echo "$NEW_NODE" | node -e "const d=require('fs').readFileSync(0,'utf8');const j=JSON.parse(d);process.stdout.write(j.ip||'')")
                         echo "[probe] 切换到新节点: $NEW_IP"
-                        # 注入 tls-auth（如果缺失）
+                        # 注入 tls-auth + 清理不兼容指令
                         if ! grep -q "tls-auth\|tls-crypt" /tmp/vpn-config.ovpn 2>/dev/null && [ -s /tmp/ta.key ]; then
                             echo "tls-auth /tmp/ta.key 1" >> /tmp/vpn-config.ovpn
                         fi
+                        sed -i '/^cipher /d;/^auth /d;/^comp-lzo/d;/^compress /d;/^keysize /d;/^tls-cipher /d' /tmp/vpn-config.ovpn
                         openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
                         VPN_PID=$!
                         sleep 5
