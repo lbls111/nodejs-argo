@@ -1,49 +1,52 @@
 # ==========================================
 # nodejs-argo + VPN Gate 完整镜像
 # 架构：客户端 → VLESS/VMess → Railway → VPN Gate → 互联网
+# 关键：使用 go-openvpn 用户态实现，无需 TUN/TAP
 # ==========================================
 
-# Stage 1: 编译 vpngate-to-socks
+# Stage 1: 编译 openvpn2socks（用户态 OpenVPN + SOCKS5）
 FROM golang:1.26-alpine3.22 AS builder
 
 WORKDIR /src
 
-# 克隆 vpngate-to-socks
-RUN apk add --no-cache git && \
-    git clone https://github.com/Sakuralaaa/vpngate-to-socks.git .
+# 安装 git
+RUN apk add --no-cache git
 
-# 编译
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/vpngate-web . && \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/vpngate-runner ./cmd/vpngate-runner
+# 克隆 go-openvpn
+RUN git clone --depth 1 https://github.com/n0madic/go-openvpn.git .
+
+# 编译 openvpn2socks（用户态，无 TUN/TAP 依赖）
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/openvpn2socks ./cmd/openvpn2socks
 
 # Stage 2: 运行环境
 FROM node:alpine3.22
 
 WORKDIR /tmp
 
-# 安装 OpenVPN 和其他依赖
+# 安装运行时依赖（nginx 用于端口复用，不再需要 openvpn/iproute2）
 RUN apk update && apk upgrade && \
     apk add --no-cache \
-    openssl curl gcompat iproute2 coreutils bash \
-    openvpn ca-certificates \
-    netcat-openbsd
+    openssl curl gcompat coreutils bash \
+    ca-certificates netcat-openbsd nginx
 
-# 复制 vpngate-to-socks
-COPY --from=builder /out/vpngate-web /usr/local/bin/vpngate-web
-COPY --from=builder /out/vpngate-runner /usr/local/bin/vpngate-runner
-RUN chmod +x /usr/local/bin/vpngate-web /usr/local/bin/vpngate-runner
+# 复制 openvpn2socks
+COPY --from=builder /out/openvpn2socks /usr/local/bin/openvpn2socks
+RUN chmod +x /usr/local/bin/openvpn2socks
 
 # 复制 nodejs-argo 原有文件（保持不变）
 COPY index.js index.html package.json ./
 
 # 复制 VPN Gate 模块（新增）
-COPY vpngate.js vpngate-server.js modify-xray.js start.sh ./
+COPY vpngate.js vpngate-server.js modify-xray.js start.sh refresh-vpn.sh ./
 
 # 安装 Node.js 依赖
-RUN chmod +x index.js start.sh && npm install
+RUN chmod +x index.js start.sh refresh-vpn.sh && npm install
+
+# 配置 nginx 反向代理
+COPY nginx.conf /etc/nginx/nginx.conf
 
 # 暴露端口
-# 3000: nodejs-argo (VLESS/VMess/Trojan)
+# 3000: nginx (复用 VLESS/VMess + 订阅)
 # 1080: SOCKS5 代理 (VPN Gate)
 EXPOSE 3000/tcp 1080/tcp
 
