@@ -205,7 +205,7 @@ else
         fi
 
         # 启动 openvpn2socks
-        openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key &
+        openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
         VPN_PID=$!
 
         # 等待 SOCKS5 就绪
@@ -320,7 +320,7 @@ while true; do
                         if ! grep -q "tls-auth\|tls-crypt" /tmp/vpn-config.ovpn 2>/dev/null && [ -s /tmp/ta.key ]; then
                             echo "tls-auth /tmp/ta.key 1" >> /tmp/vpn-config.ovpn
                         fi
-                        openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key &
+                        openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
                         VPN_PID=$!
                         sleep 5
                         if nc -z 127.0.0.1 1080 2>/dev/null; then
@@ -343,8 +343,7 @@ while true; do
                         if ! grep -q "tls-auth\|tls-crypt" /tmp/vpn-config.ovpn 2>/dev/null && [ -s /tmp/ta.key ]; then
                             echo "tls-auth /tmp/ta.key 1" >> /tmp/vpn-config.ovpn
                         fi
-                        openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key &
-                        fi
+                        openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
                         VPN_PID=$!
                         sleep 5
                         if nc -z 127.0.0.1 1080 2>/dev/null; then

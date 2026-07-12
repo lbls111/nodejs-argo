@@ -100,7 +100,7 @@ echo "[$(date)] 切换到节点: $NODE_IP ($NODE_COUNTRY)"
 
 # 启动新的 openvpn2socks
 if [ -s /tmp/ta.key ]; then
-    openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key &
+    openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn -tls-auth /tmp/ta.key -allow-no-server-identity &
 else
     openvpn2socks -listen 0.0.0.0:1080 -config /tmp/vpn-config.ovpn &
 fi
