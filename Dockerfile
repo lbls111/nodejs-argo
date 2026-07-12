@@ -58,5 +58,9 @@ ENV VPNGATE_OUTPUT=/tmp/vpngate
 ENV SOCKS5_ADDR=127.0.0.1:1080
 ENV XRAY_CONFIG=/tmp/config.json
 
+# Go 运行时调优：激进 GC，防止 gVisor 内存爬升导致 OOM
+ENV GOGC=50
+ENV GOMEMLIMIT=800MiB
+
 # 启动脚本
 CMD ["sh", "start.sh"]

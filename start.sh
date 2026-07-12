@@ -6,7 +6,7 @@
 
 # ========== 配置 ==========
 HEALTH_CHECK_INTERVAL=60
-HEALTH_CHECK_URL="http://www.gstatic.com/generate_204"
+HEALTH_CHECK_URL="https://cp.cloudflare.com/generate_204"
 HEALTH_CHECK_TIMEOUT=5
 FAILURE_THRESHOLD=3
 CACHE_FILE="/tmp/vpn-cache.json"
@@ -258,8 +258,8 @@ while true; do
             fi
         fi
 
-        # 极轻量 HTTP HEAD 探活
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time $HEALTH_CHECK_TIMEOUT --proxy socks5://127.0.0.1:1080 "$HEALTH_CHECK_URL" 2>/dev/null)
+        # 极轻量 HTTPS 探活（TLS 握手无法伪造，防劫持）
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time $HEALTH_CHECK_TIMEOUT --tlsv1.2 --proxy socks5://127.0.0.1:1080 "$HEALTH_CHECK_URL" 2>/dev/null)
 
         if [ "$HTTP_CODE" = "204" ] || [ "$HTTP_CODE" = "200" ]; then
             FAILURE_COUNT=0
