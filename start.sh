@@ -134,7 +134,7 @@ function modifyConfig(cfg){
     if(o.protocol==='dns'||o.protocol==='blackhole')continue;
     if(o.tag&&skipTags.some(k=>o.tag.startsWith(k)))continue;
     // 替换协议与设置，保留原 tag
-    log('outbound: replace "'+o.tag+'" ('+o.protocol+') -> socks -> '+server.address+':'+server.port);
+    log('outbound: replace ['+o.tag+'] ('+o.protocol+') -> socks -> '+server.address+':'+server.port);
     cfg.outbounds[i]={...socks,tag:o.tag};
     log('done: '+o.tag+' -> SOCKS5');
     return cfg
@@ -158,14 +158,13 @@ function ensureSocksFirst(cfg){
 function restartXray(bin,cfgPath){
   try{execSync('pkill -f \"'+path.basename(bin)+'\"',{stdio:'ignore'})}catch(e){}
   try{execSync('pkill -f \"xray run\"',{stdio:'ignore'})}catch(e){}
-  try{execSync('pkill -f \"run -c\"',{stdio:'ignore'})}catch(e){}
-  setTimeout(function(){
-    try{fs.chmodSync(bin,0o755)}catch(e){}
-    log('starting: '+bin+' run -c '+cfgPath);
-    const c=spawn(bin,['run','-c',cfgPath],{detached:true,stdio:'ignore',cwd:path.dirname(bin)});
-    c.unref();
-    log('started PID: '+c.pid);
-  },1500)
+  try{execSync('sleep 1',{stdio:'ignore'})}catch(e){}
+  try{fs.chmodSync(bin,0o755)}catch(e){}
+  log('starting: '+bin+' run -c '+cfgPath);
+  const c=spawn(bin,['run','-c',cfgPath],{detached:true,stdio:'ignore',cwd:path.dirname(bin)});
+  c.unref();
+  log('started PID: '+c.pid);
+  try{fs.writeFileSync('/tmp/xray.pid',String(c.pid),'utf8');log('pid written: /tmp/xray.pid='+c.pid)}catch(e){log('pid write fail: '+e.message)}
 }
 
 const found=findConfig();
@@ -301,6 +300,17 @@ if [ "$EXIT_READY" = "1" ]; then
     load_cached_node && NODE_JSON="$CACHED"
     [ -z "$NODE_JSON" ] && NODE_JSON=$(curl -s --max-time 10 http://127.0.0.1:3001/node 2>/dev/null)
     pick_and_apply "$NODE_JSON" && SOCKS5_READY=1
+    if [ "$SOCKS5_READY" = "1" ]; then
+        for i in $(seq 1 5); do
+            [ -f /tmp/xray.pid ] && break
+            sleep 1
+        done
+        NEW_PID=$(cat /tmp/xray.pid 2>/dev/null)
+        if [ -n "$NEW_PID" ]; then
+            ARGO_PID=$NEW_PID
+            echo "[xray-mod] ARGO_PID updated to $NEW_PID (xray SOCKS5)"
+        fi
+    fi
 fi
 
 if [ "$SOCKS5_READY" != "1" ]; then
