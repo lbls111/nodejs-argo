@@ -8,6 +8,7 @@ export FILE_PATH="${FILE_PATH:-/tmp}"
 export OUTBOUND_TAG="${OUTBOUND_TAG:-clean-exit}"
 echo "=========================================="
 echo "  nodejs-argo + SOCKS5 exit (clean IP)"
+echo "[build] IMAGE_COMMIT=${COMMIT_SHA:-unknown} IMAGE_BUILT=${BUILD_TIME:-unknown}"
 echo "=========================================="
 echo "[1] starting nginx..."
 nginx
