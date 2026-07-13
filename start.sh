@@ -64,10 +64,18 @@ function findConfig(){
   try{
     const out=execSync('ps auxww 2>/dev/null||ps -ef',{encoding:'utf8',timeout:3000});
     for(const line of out.split(/\\r?\\n/)){
-      const m=line.match(/\\s(\\S+)\\s+run\\s+-c\\s+(\\S+)/)||line.match(/\\s-c\\s+(\\S+)/);
+      // Match: binary run -c config.json
+      const m=line.match(/\\s(\\S+)\\s+run\\s+-c\\s+(\\S+)/);
       if(m){
-        const cfg=m[2]||m[1];
+        const cfg=m[2];
         if(cfg&&fs.existsSync(cfg)){const j=safeReadJson(cfg);if(isXrayConfig(j)){return{path:cfg,config:j,bin:m[1]}}}
+        continue
+      }
+      // Fallback: match any -c something.json (no bin)
+      const m2=line.match(/\\s-c\\s+(\\S+\\.json)\\b/);
+      if(m2){
+        const cfg=m2[1];
+        if(cfg&&fs.existsSync(cfg)){const j=safeReadJson(cfg);if(isXrayConfig(j)){return{path:cfg,config:j}}}
       }
       const paths=line.match(/(\\/\\S+)/g)||[];
       for(const p of paths){if(p.endsWith('.json')&&fs.existsSync(p)){const j=safeReadJson(p);if(isXrayConfig(j))return{path:p,config:j}}}
@@ -175,12 +183,14 @@ function restartXray(bin,cfgPath){
   } else {
     log('source binary not valid ELF: '+bin);customBin=bin
   }
-  try{execSync('pkill -f \"'+path.basename(bin)+'\"',{stdio:'ignore'})}catch(e){}
-  try{execSync('pkill -f \"xray run\"',{stdio:'ignore'})}catch(e){}
+  // 杀所有 xray：按配置路径（而非二进制名），nodejs-argo 重启随机名也逃不掉
+  try{execSync('pkill -f "run -c \\/tmp\\/config\\.json"',{stdio:'ignore'})}catch(e){}
+  try{execSync('sleep 1',{stdio:'ignore'})}catch(e){}
   try{fs.writeFileSync('/tmp/xray.bin',String(customBin),'utf8')}catch(e){}
-  try{execSync('sleep 2',{stdio:'ignore'})}catch(e){}
-  // 再杀一次（让 nodejs-argo 有足够时间启动新二进制后再清理）
-  try{execSync('pkill -f \"'+path.basename(bin)+'\"',{stdio:'ignore'})}catch(e){}
+  try{execSync('pkill -f "run -c \\/tmp\\/config\\.json"',{stdio:'ignore'})}catch(e){}
+  try{execSync('sleep 1',{stdio:'ignore'})}catch(e){}
+  // 三杀：确保 nodejs-argo 在 2s 内重启的新 xray 也被清除
+  try{execSync('pkill -f "run -c \\/tmp\\/config\\.json"',{stdio:'ignore'})}catch(e){}
   log('starting: '+customBin+' run -c '+cfgPath);
   try{
     const out=execSync('nohup '+customBin+' run -c '+cfgPath+' >/tmp/xray.log 2>&1 & echo \$!',{encoding:'utf8',timeout:5000}).trim();
@@ -212,7 +222,9 @@ const backup=found.path+'.backup';
 try{fs.copyFileSync(found.path,backup);log('backed up: '+backup)}catch(e){log('backup fail: '+e.message)}
 fs.writeFileSync(found.path,JSON.stringify(modified,null,2),'utf-8');
 log('config written: '+found.path);
-const bin=found.bin||findBin(found.path);
+var bin=found.bin;
+if(bin&&path.extname(bin)==='.json'){log('WARNING: found.bin points to .json, overriding with findBin');bin=null}
+if(!bin)bin=findBin(found.path);
 if(bin){
   restartXray(bin,found.path)
 }
@@ -378,16 +390,31 @@ while true; do
                 echo "[restart] === last 15 lines of xray.log ==="
                 tail -15 /tmp/xray.log
             fi
-            if [ -f /tmp/xray.bin ] && [ -f /tmp/config.json ]; then
+            # 先清端口：杀死所有持有 3002 的 xray（按 config 路径，防随机名漏杀）
+            pkill -f "run -c /tmp/config\\.json" 2>/dev/null || true
+            sleep 1
+            pkill -f "run -c /tmp/config\\.json" 2>/dev/null || true
+            sleep 1
+
+            XBIN=""
+            if [ -f /tmp/xray.bin ]; then
                 XBIN=$(cat /tmp/xray.bin 2>/dev/null)
-                if [ -n "$XBIN" ] && [ -x "$XBIN" ]; then
-                    nohup $XBIN run -c /tmp/config.json 2>&1 &
-                    echo $! > /tmp/xray.pid
-                    echo "[restart] xray restarted with PID $(cat /tmp/xray.pid)"
-                else
-                    echo "[restart] XBIN='$XBIN' not executable, trying auto-recovery"
-                    # 尝试重新从运行中的 xray 复制
-                    NEW_BIN=$(node -e "
+            fi
+            # 兜底：xray.bin 丢失但 xray-custom 还在
+            if [ -z "$XBIN" ] && [ -x /tmp/xray-custom ]; then
+                XBIN=/tmp/xray-custom
+                echo "/tmp/xray-custom" > /tmp/xray.bin 2>/dev/null
+                echo "[restart] recovered XBIN from /tmp/xray-custom"
+            fi
+
+            if [ -n "$XBIN" ] && [ -x "$XBIN" ]; then
+                nohup $XBIN run -c /tmp/config.json >/tmp/xray.log 2>&1 &
+                echo $! > /tmp/xray.pid
+                echo "[restart] xray restarted with PID $(cat /tmp/xray.pid)"
+            else
+                echo "[restart] XBIN='$XBIN' not executable, trying auto-recovery"
+                # 尝试重新从运行中的 xray 复制
+                NEW_BIN=$(node -e "
 const fs=require('fs'),path=require('path'),{execSync}=require('child_process');
 function walk(d,depth,acc){if(depth>2)return;let ents=[];try{ents=fs.readdirSync(d,{withFileTypes:true})}catch(e){return}for(const e of ents){const f=path.join(d,e.name);if(e.isDirectory())walk(f,depth+1,acc);else acc.push(f)}}
 const files=[];walk('/tmp',0,files);walk('/app',0,files);
@@ -403,24 +430,22 @@ for(const f of files){
   }catch(e){}
 }
 " 2>/dev/null)
-                    if [ -n "$NEW_BIN" ] && [ -x "$NEW_BIN" ]; then
-                        cp "$NEW_BIN" /tmp/xray-custom 2>/dev/null
-                        chmod +x /tmp/xray-custom 2>/dev/null
-                        echo "/tmp/xray-custom" > /tmp/xray.bin
-                        echo "[restart] recovered xray from $NEW_BIN -> /tmp/xray-custom"
-                        nohup /tmp/xray-custom run -c /tmp/config.json 2>&1 &
-                        echo $! > /tmp/xray.pid
-                        echo "[restart] xray restarted with PID $(cat /tmp/xray.pid)"
-                    else
-                        echo "[restart] cannot find xray binary for recovery"
+                if [ -n "$NEW_BIN" ] && [ -x "$NEW_BIN" ]; then
+                    cp "$NEW_BIN" /tmp/xray-custom 2>/dev/null
+                    chmod +x /tmp/xray-custom 2>/dev/null
+                    echo "/tmp/xray-custom" > /tmp/xray.bin
+                    echo "[restart] recovered xray from $NEW_BIN -> /tmp/xray-custom"
+                    nohup /tmp/xray-custom run -c /tmp/config.json >/tmp/xray.log 2>&1 &
+                    echo $! > /tmp/xray.pid
+                    echo "[restart] xray restarted with PID $(cat /tmp/xray.pid)"
+                else
+                    echo "[restart] cannot find xray binary for recovery"
+                    # 恢复备份配置
+                    if [ ! -f /tmp/config.json ] && [ -f /tmp/config.json.backup ]; then
+                        cp /tmp/config.json.backup /tmp/config.json
+                        echo "[restart] config restored from backup"
                     fi
                 fi
-            else
-                if [ ! -f /tmp/config.json ] && [ -f /tmp/config.json.backup ]; then
-                    cp /tmp/config.json.backup /tmp/config.json
-                    echo "[restart] config restored from backup"
-                fi
-                echo "[restart] skip: /tmp/xray.bin or /tmp/config.json missing"
             fi
         }
     fi
