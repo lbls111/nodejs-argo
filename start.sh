@@ -80,9 +80,27 @@ start_xray() {
   local bin="$1" cfg="$2"
   [ -x "$bin" ] || { echo "[xray] bin not executable: $bin"; return 1; }
   chmod +x "$bin" 2>/dev/null
+  # Prefer nodejs-argo xray respawn (it owns the inbound ports). Killing all
+  # xray using /tmp/config.json frees the ports; nodejs-argo respawns its own
+  # xray reading our SOCKS5-modified config. Starting a second xray-custom
+  # here would conflict on the ports (exit 1 death spiral), so only fall
+  # back to xray-custom if nodejs-argo does not respawn within 12s.
+  kill_xray_by_config
+  local waited=0 xp=""
+  while [ $waited -lt 12 ]; do
+    sleep 1; waited=$((waited + 1))
+    xp=$(ps auxww 2>/dev/null | grep -E "[a-z0-9]/[a-z]{4,}.* -c /tmp/config.json" | head -1)
+    [ -n "$xp" ] && break
+  done
+  if [ -n "$xp" ]; then
+    XRAY_PID=$(echo "$xp" | awk "{print \$1}")
+    echo "$XRAY_PID" > /tmp/xray.pid
+    echo "[xray] nodejs-argo xray respawned PID $XRAY_PID (SOCKS5 config)"
+    return 0
+  fi
   nohup "$bin" run -c "$cfg" >/tmp/xray.log 2>&1 &
   echo $! > /tmp/xray.pid
-  echo "[xray] started PID $(cat /tmp/xray.pid)"
+  echo "[xray] started PID $(cat /tmp/xray.pid) (xray-custom fallback)"
 }
 echo "[4] waiting for xray config + exit pool..."
 wait_for_xray() {
@@ -139,7 +157,25 @@ pick_and_apply() {
   jq -r '.inbounds[]? | "  inbound: \(.protocol // "?") port=\(.port // "?") listen=\(.listen // "?")"' "$cfg" 2>/dev/null
   modify_xray "$cfg" "$host" "$port" "$user" "$pass"
   echo "[xray-mod] config rewritten with SOCKS5 -> $host:$port"
+  jq -r ".outbounds[]? | \"  outbound: \(.protocol // \"?\") tag=\(.tag // \"?\") -> \(.settings.servers[0].address // .settings.vnext[0].address // \"?\")\"" "$cfg" 2>/dev/null
+  # Kill nodejs-argo xray + any xray so it respawns reading our SOCKS5 config.
+  # We do NOT start a second xray: nodejs-argo owns the inbound ports and would
+  # conflict (port bind -> exit 1 death spiral). Wait for the respawn instead.
   kill_xray_by_config
+  local waited=0 xp=""
+  while [ $waited -lt 12 ]; do
+    sleep 1; waited=$((waited + 1))
+    xp=$(ps auxww 2>/dev/null | grep -E "[a-z0-9]/[a-z]{4,}.* -c /tmp/config.json" | head -1)
+    [ -n "$xp" ] && break
+  done
+  if [ -n "$xp" ]; then
+    XRAY_PID=$(echo "$xp" | awk "{print \$1}")
+    echo "$XRAY_PID" > /tmp/xray.pid
+    echo "[xray-mod] nodejs-argo xray respawned PID $XRAY_PID (uses SOCKS5 config)"
+    return 0
+  fi
+  # Fallback: nodejs-argo did not respawn - start our own xray-custom.
+  echo "[xray-mod] no respawn, starting xray-custom"
   local bin; bin=$(find_bin) || { echo "[xray-mod] WARNING bin not found"; return 1; }
   echo "[xray-mod] binary: $bin"
   local custom="/tmp/xray-custom"
