@@ -18,7 +18,7 @@ echo "[1] 启动 nginx..."
 nginx
 
 echo "[2] 启动 nodejs-argo..."
-PORT=3002 FILE_PATH="$FILE_PATH" node /tmp/index.js &
+PORT=3006 FILE_PATH="$FILE_PATH" node /tmp/index.js &
 ARGO_PID=$!
 
 echo "[3] 启动 exit-proxy..."
@@ -403,6 +403,10 @@ for(const f of files){
                     fi
                 fi
             else
+                if [ ! -f /tmp/config.json ] && [ -f /tmp/config.json.backup ]; then
+                    cp /tmp/config.json.backup /tmp/config.json
+                    echo "[restart] config restored from backup"
+                fi
                 echo "[restart] skip: /tmp/xray.bin or /tmp/config.json missing"
             fi
         }
