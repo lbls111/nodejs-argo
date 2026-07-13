@@ -152,15 +152,25 @@ function ensureSocksFirst(cfg){
   }
 }
 
-// 4) Restart xray (nohup + $! for reliable PID)
+// 4) Restart xray with custom binary path（避免 nodejs-argo pkill 误杀）
 function restartXray(bin,cfgPath){
+  try{fs.chmodSync(bin,0o755)}catch(e){}
+  var customBin;
+  try{
+    customBin='/tmp/xray-custom';
+    fs.copyFileSync(bin,customBin);
+    fs.chmodSync(customBin,0o755);
+    log('copied xray to: '+customBin)
+  }catch(e){log('copy error: '+e.message);customBin=bin}
   try{execSync('pkill -f \"'+path.basename(bin)+'\"',{stdio:'ignore'})}catch(e){}
   try{execSync('pkill -f \"xray run\"',{stdio:'ignore'})}catch(e){}
-  try{execSync('sleep 1',{stdio:'ignore'})}catch(e){}
-  try{fs.chmodSync(bin,0o755)}catch(e){}
-  log('starting: '+bin+' run -c '+cfgPath);
+  try{fs.writeFileSync('/tmp/xray.bin',String(customBin),'utf8')}catch(e){}
+  try{execSync('sleep 2',{stdio:'ignore'})}catch(e){}
+  // 再杀一次（让 nodejs-argo 有足够时间启动新二进制后再清理）
+  try{execSync('pkill -f \"'+path.basename(bin)+'\"',{stdio:'ignore'})}catch(e){}
+  log('starting: '+customBin+' run -c '+cfgPath);
   try{
-    const out=execSync('nohup '+bin+' run -c '+cfgPath+' >/dev/null 2>&1 & echo \$!',{encoding:'utf8',timeout:5000}).trim();
+    const out=execSync('nohup '+customBin+' run -c '+cfgPath+' >/tmp/xray.log 2>&1 & echo \$!',{encoding:'utf8',timeout:5000}).trim();
     const pid=out.split(/\\s/).filter(Boolean).pop();
     if(pid&&/^\\d+$/.test(pid)){
       log('started PID: '+pid);
@@ -191,7 +201,6 @@ fs.writeFileSync(found.path,JSON.stringify(modified,null,2),'utf-8');
 log('config written: '+found.path);
 const bin=found.bin||findBin(found.path);
 if(bin){
-  try{fs.writeFileSync('/tmp/xray.bin',String(bin),'utf8')}catch(e){}
   restartXray(bin,found.path)
 }
 else{log('WARNING: bin not found, config written only');log('Hint: xray may be named differently or at /tmp/web')}
@@ -352,7 +361,7 @@ while true; do
             if [ -f /tmp/xray.bin ] && [ -f /tmp/config.json ]; then
                 XBIN=$(cat /tmp/xray.bin 2>/dev/null)
                 [ -n "$XBIN" ] && [ -x "$XBIN" ] && {
-                    nohup $XBIN run -c /tmp/config.json >/dev/null 2>&1 &
+                    nohup $XBIN run -c /tmp/config.json >/tmp/xray.log 2>&1 &
                     echo $! > /tmp/xray.pid
                     echo "[restart] xray restarted with PID $(cat /tmp/xray.pid)"
                 }
