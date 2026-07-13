@@ -79,19 +79,15 @@ start_xray() {
   local bin="$1" cfg="$2"
   [ -x "$bin" ] || { echo "[xray] bin not executable: $bin"; return 1; }
   chmod +x "$bin" 2>/dev/null
-  (
+  # setsid detaches xray into its own session so SIGHUP sent to the script
+  # process group (e.g. by the argo tunnel / supervisor) cannot kill it.
+  if command -v setsid >/dev/null 2>&1; then
+    setsid nohup "$bin" run -c "$cfg" >/tmp/xray.log 2>&1 &
+  else
     nohup "$bin" run -c "$cfg" >/tmp/xray.log 2>&1 &
-    local xpid=$!
-    echo $xpid > /tmp/xray.pid
-    echo "[xray] started PID $xpid"
-    wait $xpid
-    local ec=$?
-    local sig=$ec
-    [ $ec -gt 128 ] && sig=$((ec - 128))
-    echo "[xray-death] PID $xpid exit=$ec signal=$sig at $(date -u +%T)"
-    echo "[xray-death] last xray.log:"; tail -8 /tmp/xray.log
-    echo "[xray-death] procs:"; ps auxww 2>/dev/null | grep -iE 'xray|/tmp/[a-z]{5,}' | grep -v grep
-  ) &
+  fi
+  echo $! > /tmp/xray.pid
+  echo "[xray] started PID $(cat /tmp/xray.pid)"
 }
 echo "[4] waiting for xray config + exit pool..."
 wait_for_xray() {

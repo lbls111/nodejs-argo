@@ -1,4 +1,4 @@
-﻿# ==========================================
+# ==========================================
 # nodejs-argo + 鍏叡 SOCKS5 骞插噣鍑哄彛锛坕nline modify锛?# ==========================================
 
 FROM node:alpine3.22
@@ -7,7 +7,7 @@ WORKDIR /tmp
 
 RUN apk update && apk upgrade && \
     apk add --no-cache \
-    openssl curl gcompat coreutils bash jq \
+    openssl curl gcompat coreutils bash jq util-linux \\
     ca-certificates netcat-openbsd nginx
 
 COPY index.js index.html package.json ./
