@@ -197,7 +197,10 @@ try{fs.copyFileSync(found.path,backup);log('backed up: '+backup)}catch(e){log('b
 fs.writeFileSync(found.path,JSON.stringify(modified,null,2),'utf-8');
 log('config written: '+found.path);
 const bin=found.bin||findBin(found.path);
-if(bin)restartXray(bin,found.path);
+if(bin){
+  try{fs.writeFileSync('/tmp/xray.bin',String(bin),'utf8')}catch(e){}
+  restartXray(bin,found.path)
+}
 else{log('WARNING: bin not found, config written only');log('Hint: xray may be named differently or at /tmp/web')}
 log('========== xray-mod done ==========')
 " 2>&1
@@ -347,11 +350,12 @@ FAILURE_COUNT=0
 while true; do
     sleep $HEALTH_CHECK_INTERVAL
 
-    kill -0 $ARGO_PID 2>/dev/null || {
-        echo "[restart] nodejs-argo crashed"
-        PORT=3002 FILE_PATH="$FILE_PATH" node /tmp/index.js &
-        ARGO_PID=$!
-    }
+    # nodejs-argo 已写好配置，无需继续运行。不重启避免覆盖 SOCKS 修改
+    # kill -0 $ARGO_PID 2>/dev/null || {
+    #     echo "[restart] nodejs-argo crashed"
+    #     PORT=3002 FILE_PATH="$FILE_PATH" node /tmp/index.js &
+    #     ARGO_PID=$!
+    # }
 
     kill -0 $EXIT_PID 2>/dev/null || {
         echo "[restart] exit-proxy crashed"
