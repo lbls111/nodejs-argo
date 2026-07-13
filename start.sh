@@ -22,7 +22,7 @@ PORT=3002 FILE_PATH="$FILE_PATH" node /tmp/index.js &
 ARGO_PID=$!
 
 echo "[3] 启动 exit-proxy..."
-node /tmp/exit-proxy.js &
+EXIT_PORT=3005 node /tmp/exit-proxy.js &
 EXIT_PID=$!
 
 # ============================================================
@@ -242,7 +242,7 @@ process.stdout.write(ok?'1':'0');
 
 wait_exit_pool() {
     for i in $(seq 1 90); do
-        STATUS=$(curl -s --max-time 3 http://127.0.0.1:3001/status 2>/dev/null)
+        STATUS=$(curl -s --max-time 3 http://127.0.0.1:3005/status 2>/dev/null)
         if [ -n "$STATUS" ]; then
             NODE_COUNT=$(echo "$STATUS" | node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(String(j.nodes||0))}catch(e){process.stdout.write('0')}" 2>/dev/null)
             if [ "$NODE_COUNT" != "0" ] && [ -n "$NODE_COUNT" ]; then
@@ -321,7 +321,7 @@ CURRENT_EXIT_PORT=""
 if [ "$EXIT_READY" = "1" ]; then
     NODE_JSON=""
     load_cached_node && NODE_JSON="$CACHED"
-    [ -z "$NODE_JSON" ] && NODE_JSON=$(curl -s --max-time 10 http://127.0.0.1:3001/node 2>/dev/null)
+    [ -z "$NODE_JSON" ] && NODE_JSON=$(curl -s --max-time 10 http://127.0.0.1:3005/node 2>/dev/null)
     pick_and_apply "$NODE_JSON" && SOCKS5_READY=1
     if [ "$SOCKS5_READY" = "1" ]; then
         for i in $(seq 1 5); do
@@ -428,7 +428,7 @@ for(const f of files){
             if [ $FAILURE_COUNT -ge $FAILURE_THRESHOLD ]; then
                 echo "[probe] switching exit..."
                 FAILURE_COUNT=0
-                NEW_NODE=$(curl -s --max-time 10 http://127.0.0.1:3001/node 2>/dev/null)
+                NEW_NODE=$(curl -s --max-time 10 http://127.0.0.1:3005/node 2>/dev/null)
                 pick_and_apply "$NEW_NODE" && {
                     SOCKS5_READY=1
                     echo "[probe] switched to $CURRENT_EXIT_HOST:$CURRENT_EXIT_PORT"
