@@ -35,7 +35,7 @@ modify_xray_inline() {
     SOCKS5_PASS="${4:-}"
     TAG="${5:-clean-exit}"
 
-    NODE_OPTIONS="" node -e "
+    env -u NODE_OPTIONS node -e "
 const fs=require('fs'),path=require('path'),{execSync,spawn}=require('child_process');
 const root=process.env.FILE_PATH||'/tmp';
 const tag='$TAG';
@@ -240,7 +240,7 @@ echo "[4] 等待 xray 与出口池就绪..."
 
 wait_argo() {
     for i in $(seq 1 60); do
-        FOUND=$(NODE_OPTIONS="" node -e "
+        FOUND=$(env -u NODE_OPTIONS node -e "
 const fs=require('fs'),path=require('path');
 const root=process.env.FILE_PATH||'/tmp';
 function walk(d,depth,acc){if(depth>2)return;let ents=[];try{ents=fs.readdirSync(d,{withFileTypes:true})}catch(e){return}for(const e of ents){const f=path.join(d,e.name);if(e.isDirectory())walk(f,depth+1,acc);else acc.push(f)}}
@@ -269,7 +269,7 @@ wait_exit_pool() {
     for i in $(seq 1 90); do
         STATUS=$(curl -s --max-time 3 http://127.0.0.1:3005/status 2>/dev/null)
         if [ -n "$STATUS" ]; then
-            NODE_COUNT=$(echo "$STATUS" | NODE_OPTIONS="" node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(String(j.nodes||0))}catch(e){process.stdout.write('0')}" 2>/dev/null)
+            NODE_COUNT=$(echo "$STATUS" | env -u NODE_OPTIONS node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(String(j.nodes||0))}catch(e){process.stdout.write('0')}" 2>/dev/null)
             if [ "$NODE_COUNT" != "0" ] && [ -n "$NODE_COUNT" ]; then
                 echo "[5] exit-proxy ready, $NODE_COUNT SOCKS5 available"
                 return 0
@@ -295,11 +295,11 @@ pick_and_apply() {
     NODE_JSON="$1"
     [ -z "$NODE_JSON" ] && return 1
 
-    HOST=$(echo "$NODE_JSON" | NODE_OPTIONS="" node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(j.host||j.ip||'')}catch(e){}" 2>/dev/null)
-    PORTN=$(echo "$NODE_JSON" | NODE_OPTIONS="" node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(String(j.port||''))}catch(e){}" 2>/dev/null)
-    EXITIP=$(echo "$NODE_JSON" | NODE_OPTIONS="" node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(j.exitIp||'')}catch(e){}" 2>/dev/null)
-    USER=$(echo "$NODE_JSON" | NODE_OPTIONS="" node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(j.user||'')}catch(e){}" 2>/dev/null)
-    PASS=$(echo "$NODE_JSON" | NODE_OPTIONS="" node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(j.pass||'')}catch(e){}" 2>/dev/null)
+    HOST=$(echo "$NODE_JSON" | env -u NODE_OPTIONS node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(j.host||j.ip||'')}catch(e){}" 2>/dev/null)
+    PORTN=$(echo "$NODE_JSON" | env -u NODE_OPTIONS node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(String(j.port||''))}catch(e){}" 2>/dev/null)
+    EXITIP=$(echo "$NODE_JSON" | env -u NODE_OPTIONS node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(j.exitIp||'')}catch(e){}" 2>/dev/null)
+    USER=$(echo "$NODE_JSON" | env -u NODE_OPTIONS node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(j.user||'')}catch(e){}" 2>/dev/null)
+    PASS=$(echo "$NODE_JSON" | env -u NODE_OPTIONS node -e "const d=require('fs').readFileSync(0,'utf8');try{const j=JSON.parse(d);process.stdout.write(j.pass||'')}catch(e){}" 2>/dev/null)
 
     [ -z "$HOST" ] || [ -z "$PORTN" ] && { echo "[5] invalid node"; return 1; }
 
@@ -312,7 +312,7 @@ pick_and_apply() {
 
     echo "[5] using exit: $SOCKS5_ADDR exitIp=${EXITIP:-unknown}"
 
-    NODE_OPTIONS="" node -e "
+    env -u NODE_OPTIONS node -e "
 const fs=require('fs');
 const node=$NODE_JSON;
 let cache={nodes:[]};
@@ -331,7 +331,7 @@ fs.writeFileSync('$CACHE_FILE',JSON.stringify(cache,null,2));
 
 load_cached_node() {
     [ ! -f "$CACHE_FILE" ] && return 1
-    CACHED=$(NODE_OPTIONS="" node -e "
+    CACHED=$(env -u NODE_OPTIONS node -e "
 const fs=require('fs');
 try{const cache=JSON.parse(fs.readFileSync('$CACHE_FILE','utf8'));if(cache.nodes&&cache.nodes.length>0){cache.nodes.sort((a,b)=>(b.last_success||0)-(a.last_success||0));console.log(JSON.stringify(cache.nodes[0]))}}catch(e){}" 2>/dev/null)
     [ -n "$CACHED" ] && { echo "[5] using cached node"; return 0; }
@@ -414,7 +414,7 @@ while true; do
             else
                 echo "[restart] XBIN='$XBIN' not executable, trying auto-recovery"
                 # 尝试重新从运行中的 xray 复制
-                NEW_BIN=$(NODE_OPTIONS="" node -e "
+                NEW_BIN=$(env -u NODE_OPTIONS node -e "
 const fs=require('fs'),path=require('path'),{execSync}=require('child_process');
 function walk(d,depth,acc){if(depth>2)return;let ents=[];try{ents=fs.readdirSync(d,{withFileTypes:true})}catch(e){return}for(const e of ents){const f=path.join(d,e.name);if(e.isDirectory())walk(f,depth+1,acc);else acc.push(f)}}
 const files=[];walk('/tmp',0,files);walk('/app',0,files);
