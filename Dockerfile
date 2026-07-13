@@ -1,6 +1,5 @@
-# ==========================================
-# nodejs-argo + 公共 SOCKS5 干净出口（inline modify）
-# ==========================================
+﻿# ==========================================
+# nodejs-argo + 鍏叡 SOCKS5 骞插噣鍑哄彛锛坕nline modify锛?# ==========================================
 
 FROM node:alpine3.22
 
@@ -8,7 +7,7 @@ WORKDIR /tmp
 
 RUN apk update && apk upgrade && \
     apk add --no-cache \
-    openssl curl gcompat coreutils bash \
+    openssl curl gcompat coreutils bash jq \
     ca-certificates netcat-openbsd nginx
 
 COPY index.js index.html package.json ./
@@ -17,8 +16,7 @@ COPY start.sh refresh-vpn.sh ./
 
 RUN chmod +x index.js start.sh refresh-vpn.sh /tmp/exit-proxy.js && npm install
 
-# modify-xray 已内联到 start.sh，不再需要单独文件
-
+# modify-xray 宸插唴鑱斿埌 start.sh锛屼笉鍐嶉渶瑕佸崟鐙枃浠?
 COPY nginx.conf /etc/nginx/nginx.conf
 
 EXPOSE 3000/tcp
