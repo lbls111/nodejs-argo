@@ -210,15 +210,15 @@ while true; do
       [ -f /tmp/xray.bin ] && XBIN=$(cat /tmp/xray.bin 2>/dev/null)
       [ -z "$XBIN" ] && [ -x /tmp/xray-custom ] && { XBIN=/tmp/xray-custom; echo "/tmp/xray-custom" > /tmp/xray.bin; }
       if [ -n "$XBIN" ] && [ -x "$XBIN" ]; then
-        local cfg; cfg=$(find_config) || cfg="/tmp/config.json"
+        cfg=$(find_config) || cfg="/tmp/config.json"
         start_xray "$XBIN" "$cfg"
       else
         echo "[restart] XBIN='$XBIN' not executable, trying recover"
-        local nb; nb=$(find_bin)
+        nb=$(find_bin)
         if [ -n "$nb" ] && [ -x "$nb" ]; then
           cp "$nb" /tmp/xray-custom 2>/dev/null; chmod +x /tmp/xray-custom 2>/dev/null
           echo "/tmp/xray-custom" > /tmp/xray.bin
-          local cfg; cfg=$(find_config) || cfg="/tmp/config.json"
+          cfg=$(find_config) || cfg="/tmp/config.json"
           start_xray /tmp/xray-custom "$cfg"
         else
           echo "[restart] cannot find xray binary"
