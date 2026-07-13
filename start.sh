@@ -1,6 +1,6 @@
 # nodejs-argo + public SOCKS5 clean exit (jq-based, no node -e)
 HEALTH_CHECK_INTERVAL=60
-FAILURE_THRESHOLD=3
+FAILURE_THRESHOLD=2
 CACHE_FILE="/tmp/exit-cache.json"
 NODE_CACHE_MAX=8
 export FILE_PATH="${FILE_PATH:-/tmp}"
@@ -148,12 +148,42 @@ pick_and_apply() {
   start_xray "$bin" "$cfg"
   return 0
 }
+probe_exit() {
+  # returns 0 if the given SOCKS5 host:port currently exits via generate_204
+  local h="$1" p="$2"
+  [ -z "$h" ] || [ -z "$p" ] && return 1
+  local code
+  code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 --tlsv1.2 \
+    --proxy "socks5h://${h}:${p}" "https://cp.cloudflare.com/generate_204" 2>/dev/null)
+  [ "$code" = "204" ] || [ "$code" = "200" ]
+}
+pick_working_exit() {
+  # try up to 12 random verified nodes, apply only one that passes a LIVE probe
+  local tries=0
+  while [ $tries -lt 12 ]; do
+    tries=$((tries + 1))
+    local nj
+    nj=$(curl -s --max-time 10 http://127.0.0.1:3005/node 2>/dev/null)
+    [ -z "$nj" ] && { sleep 1; continue; }
+    local h p
+    h=$(echo "$nj" | jq -r '.host // .ip // empty' 2>/dev/null)
+    p=$(echo "$nj" | jq -r '.port // empty' 2>/dev/null)
+    [ -z "$h" ] || [ -z "$p" ] && { sleep 1; continue; }
+    if probe_exit "$h" "$p"; then
+      pick_and_apply "$nj" && return 0
+    else
+      echo "[pick] skip dead exit $h:$p (probe fail)"
+    fi
+  done
+  return 1
+}
 SOCKS5_READY=0
 CURRENT_EXIT_HOST=""
 CURRENT_EXIT_PORT=""
 if [ "$EXIT_READY" = "1" ]; then
-  NODE_JSON=$(curl -s --max-time 10 http://127.0.0.1:3005/node 2>/dev/null)
-  pick_and_apply "$NODE_JSON" && SOCKS5_READY=1
+  pick_working_exit && SOCKS5_READY=1 || {
+    echo "[*] no live exit found, using direct (Railway IP)"
+  }
 fi
 if [ "$SOCKS5_READY" = "1" ]; then
   echo "[xray-mod] xray SOCKS5 started, pid=$(cat /tmp/xray.pid 2>/dev/null)"
@@ -214,11 +244,12 @@ while true; do
       if [ $FAILURE_COUNT -ge $FAILURE_THRESHOLD ]; then
         echo "[probe] switching exit..."
         FAILURE_COUNT=0
-        NEW_NODE=$(curl -s --max-time 10 http://127.0.0.1:3005/node 2>/dev/null)
-        pick_and_apply "$NEW_NODE" && {
+        if pick_working_exit; then
           SOCKS5_READY=1
           echo "[probe] switched to $CURRENT_EXIT_HOST:$CURRENT_EXIT_PORT"
-        } || echo "[probe] keep current"
+        else
+          echo "[probe] no live exit, keep current $CURRENT_EXIT_HOST:$CURRENT_EXIT_PORT"
+        fi
       fi
     fi
   fi
