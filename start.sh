@@ -80,8 +80,16 @@ start_xray() {
   [ -x "$bin" ] || { echo "[xray] bin not executable: $bin"; return 1; }
   chmod +x "$bin" 2>/dev/null
   nohup "$bin" run -c "$cfg" >/tmp/xray.log 2>&1 &
-  echo $! > /tmp/xray.pid
-  echo "[xray] started PID $(cat /tmp/xray.pid)"
+  local xpid=$!
+  echo $xpid > /tmp/xray.pid
+  echo "[xray] started PID $xpid"
+  # death monitor: report why xray exited (signal vs crash) + process snapshot
+  (
+    while kill -0 $xpid 2>/dev/null; do sleep 2; done
+    echo "[xray-death] PID $xpid gone at $(date -u +%T)"
+    echo "[xray-death] last xray.log:"; tail -8 /tmp/xray.log
+    echo "[xray-death] xray procs:"; ps auxww 2>/dev/null | grep -iE 'xray|/tmp/[a-z]{5,}' | grep -v grep
+  ) &
 }
 echo "[4] waiting for xray config + exit pool..."
 wait_for_xray() {
