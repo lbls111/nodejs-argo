@@ -170,7 +170,7 @@ function restartXray(bin,cfgPath){
   try{execSync('pkill -f \"'+path.basename(bin)+'\"',{stdio:'ignore'})}catch(e){}
   log('starting: '+customBin+' run -c '+cfgPath);
   try{
-    const out=execSync('nohup '+customBin+' run -c '+cfgPath+' 2>&1 & echo \$!',{encoding:'utf8',timeout:5000}).trim();
+    const out=execSync('nohup '+customBin+' run -c '+cfgPath+' >/tmp/xray.log 2>&1 & echo \$!',{encoding:'utf8',timeout:5000}).trim();
     const pid=out.split(/\\s/).filter(Boolean).pop();
     if(pid&&/^\\d+$/.test(pid)){
       log('started PID: '+pid);
@@ -332,6 +332,8 @@ if [ "$EXIT_READY" = "1" ]; then
         if [ -n "$NEW_PID" ]; then
             ARGO_PID=$NEW_PID
             echo "[xray-mod] ARGO_PID updated to $NEW_PID (xray SOCKS5)"
+            # tail xray.log 到 stdout 便于 Railway 日志可见崩溃堆栈
+            nohup tail -f /tmp/xray.log 2>/dev/null &
         fi
     fi
 fi
@@ -358,6 +360,11 @@ while true; do
         XRAY_PID=$(cat /tmp/xray.pid 2>/dev/null)
         kill -0 $XRAY_PID 2>/dev/null || {
             echo "[restart] xray is dead (PID $XRAY_PID)"
+            # 输出崩溃前的 xray.log（最后 15 行）
+            if [ -s /tmp/xray.log ]; then
+                echo "[restart] === last 15 lines of xray.log ==="
+                tail -15 /tmp/xray.log
+            fi
             if [ -f /tmp/xray.bin ] && [ -f /tmp/config.json ]; then
                 XBIN=$(cat /tmp/xray.bin 2>/dev/null)
                 if [ -n "$XBIN" ] && [ -x "$XBIN" ]; then
