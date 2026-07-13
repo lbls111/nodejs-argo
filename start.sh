@@ -96,7 +96,7 @@ start_xray() {
 echo "[4] waiting for xray config + exit pool..."
 wait_for_xray() {
   for i in $(seq 1 60); do
-    if find_config >/dev/null 2>&1; then echo "[4] xray config ready"; return 0; fi
+    if find_config >/dev/null 2>&1; then XRAY_CONFIG="$(find_config)"; echo "[4] xray config ready ($XRAY_CONFIG)"; return 0; fi
     sleep 2
   done
   echo "[4] WARN: no xray config in 120s"
@@ -137,7 +137,13 @@ pick_and_apply() {
   CURRENT_EXIT_PORT="$port"
   echo "[5] using exit: $SOCKS5_ADDR"
   echo "$node_json" > /tmp/last-node.json 2>/dev/null
-  local cfg; cfg=$(find_config) || { echo "[5] no xray config"; return 1; }
+  local cfg
+  if [ -n "$XRAY_CONFIG" ] && [ -f "$XRAY_CONFIG" ]; then
+    cfg="$XRAY_CONFIG"
+  else
+    cfg=$(find_config) || { echo "[5] no xray config"; return 1; }
+  fi
+  XRAY_CONFIG="$cfg"
   echo "[xray-mod] found config: $cfg"
   jq -r '.inbounds[]? | "  inbound: \(.protocol // "?") port=\(.port // "?") listen=\(.listen // "?")"' "$cfg" 2>/dev/null
   modify_xray "$cfg" "$host" "$port" "$user" "$pass"
@@ -159,13 +165,18 @@ pick_and_apply() {
   return 0
 }
 probe_exit() {
-  # returns 0 if the given SOCKS5 host:port currently exits via generate_204
-  local h="$1" p="$2"
+  # returns 0 if the given SOCKS5 host:port currently exits via generate_204.
+  # Retries up to 3x because free public SOCKS5 proxies are flaky (transient 000).
+  local h="$1" p="$2" code tries=0
   [ -z "$h" ] || [ -z "$p" ] && return 1
-  local code
-  code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 --tlsv1.2 \
-    --proxy "socks5h://${h}:${p}" "https://cp.cloudflare.com/generate_204" 2>/dev/null)
-  [ "$code" = "204" ] || [ "$code" = "200" ]
+  while [ $tries -lt 3 ]; do
+    tries=$((tries + 1))
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 --tlsv1.2 \
+      --proxy "socks5h://${h}:${p}" "https://cp.cloudflare.com/generate_204" 2>/dev/null)
+    if [ "$code" = "204" ] || [ "$code" = "200" ]; then return 0; fi
+    sleep 2
+  done
+  return 1
 }
 pick_working_exit() {
   # try up to 12 random verified nodes, apply only one that passes a LIVE probe
@@ -220,7 +231,7 @@ while true; do
       [ -f /tmp/xray.bin ] && XBIN=$(cat /tmp/xray.bin 2>/dev/null)
       [ -z "$XBIN" ] && [ -x /tmp/xray-custom ] && { XBIN=/tmp/xray-custom; echo "/tmp/xray-custom" > /tmp/xray.bin; }
       if [ -n "$XBIN" ] && [ -x "$XBIN" ]; then
-        cfg=$(find_config) || cfg="/tmp/config.json"
+        cfg=${XRAY_CONFIG:-/tmp/config.json}; [ -f "$cfg" ] || cfg=$(find_config) || cfg="/tmp/config.json"
         start_xray "$XBIN" "$cfg"
       else
         echo "[restart] XBIN='$XBIN' not executable, trying recover"
@@ -228,7 +239,7 @@ while true; do
         if [ -n "$nb" ] && [ -x "$nb" ]; then
           cp "$nb" /tmp/xray-custom 2>/dev/null; chmod +x /tmp/xray-custom 2>/dev/null
           echo "/tmp/xray-custom" > /tmp/xray.bin
-          cfg=$(find_config) || cfg="/tmp/config.json"
+          cfg=${XRAY_CONFIG:-/tmp/config.json}; [ -f "$cfg" ] || cfg=$(find_config) || cfg="/tmp/config.json"
           start_xray /tmp/xray-custom "$cfg"
         else
           echo "[restart] cannot find xray binary"
