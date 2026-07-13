@@ -9,6 +9,8 @@ NODE_CACHE_MAX=8
 
 export FILE_PATH="${FILE_PATH:-/tmp}"
 export OUTBOUND_TAG="${OUTBOUND_TAG:-clean-exit}"
+# Railway 可能设了 NODE_OPTIONS=--check，与 node -e 冲突，全局清理
+unset NODE_OPTIONS
 
 echo "=========================================="
 echo "  nodejs-argo + SOCKS5 exit (clean IP)"
