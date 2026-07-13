@@ -117,17 +117,10 @@ function findBin(configPath){
   return null
 }
 
-// 3) Reuse existing egress outbound + fix inbound port
+// 3) Reuse existing egress outbound（保留入站端口不变）
 function modifyConfig(cfg){
   const server={address:'$SOCKS5_HOST',port:$SOCKS5_PORT};
   const u='$SOCKS5_USER',p='$SOCKS5_PASS';
-
-  // 修正入站端口：inbound[0]（vless）从 8001 改为 3000（匹配 Railway PORT）
-  if(cfg.inbounds&&cfg.inbounds[0]&&cfg.inbounds[0].port===8001){
-    log('inbound[0] port: 8001 -> 3000');
-    cfg.inbounds[0].port=3000
-  }
-
   const socks={protocol:'socks',settings:{servers:[server]}};
   if(u&&p)socks.settings.servers[0].users=[{user:u,pass:p}];
   if(!cfg.outbounds)cfg.outbounds=[];
@@ -340,7 +333,8 @@ fi
 
 echo "=========================================="
 echo "  Service started"
-  echo "  VLESS/VMess inbound: port 3000"
+  echo "  Web: port 3000"
+  echo "  Subscribe: /sub"
 echo "  Subscription: /sub"
 [ "$SOCKS5_READY" = "1" ] && echo "  Exit: SOCKS5 $CURRENT_EXIT_HOST:$CURRENT_EXIT_PORT ($CURRENT_EXIT_IP)" || echo "  Exit: direct (Railway)"
 echo "=========================================="
