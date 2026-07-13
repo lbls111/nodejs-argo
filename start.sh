@@ -72,7 +72,7 @@ modify_xray() {
 }
 kill_xray_by_config() {
   for i in 1 2 3; do
-    pkill -f "run -c /tmp/config.json" 2>/dev/null || true
+    pkill -f "/tmp/config.json" 2>/dev/null || true
     sleep 1
   done
 }
@@ -80,13 +80,7 @@ start_xray() {
   local bin="$1" cfg="$2"
   [ -x "$bin" ] || { echo "[xray] bin not executable: $bin"; return 1; }
   chmod +x "$bin" 2>/dev/null
-  # setsid detaches xray into its own session so SIGHUP sent to the script
-  # process group (e.g. by the argo tunnel / supervisor) cannot kill it.
-  if command -v setsid >/dev/null 2>&1; then
-    setsid nohup "$bin" run -c "$cfg" >/tmp/xray.log 2>&1 &
-  else
-    nohup "$bin" run -c "$cfg" >/tmp/xray.log 2>&1 &
-  fi
+  nohup "$bin" run -c "$cfg" >/tmp/xray.log 2>&1 &
   echo $! > /tmp/xray.pid
   echo "[xray] started PID $(cat /tmp/xray.pid)"
 }

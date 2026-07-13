@@ -7,7 +7,7 @@ WORKDIR /tmp
 
 RUN apk update && apk upgrade && \
     apk add --no-cache \
-    openssl curl gcompat coreutils bash jq util-linux \\
+    openssl curl gcompat coreutils bash jq \\
     ca-certificates netcat-openbsd nginx
 
 COPY index.js index.html package.json ./
