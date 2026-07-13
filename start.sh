@@ -155,13 +155,26 @@ function ensureSocksFirst(cfg){
 // 4) Restart xray with custom binary path（避免 nodejs-argo pkill 误杀）
 function restartXray(bin,cfgPath){
   try{fs.chmodSync(bin,0o755)}catch(e){}
-  var customBin;
-  try{
-    customBin='/tmp/xray-custom';
-    fs.copyFileSync(bin,customBin);
-    fs.chmodSync(customBin,0o755);
-    log('copied xray to: '+customBin)
-  }catch(e){log('copy error: '+e.message);customBin=bin}
+  var customBin='/tmp/xray-custom';
+  // 复制并验证 ELF 头，竞态损坏时重试
+  function isELF(f){
+    try{const fd=fs.openSync(f,'r');const b=Buffer.alloc(4);fs.readSync(fd,b,0,4,0);fs.closeSync(fd);return b[0]===0x7f&&b[1]===0x45&&b[2]===0x4c&&b[3]===0x46}catch(e){return false}
+  }
+  if(isELF(bin)){
+    var copied=false;
+    for(var i=0;i<3;i++){
+      try{
+        fs.copyFileSync(bin,customBin);fs.chmodSync(customBin,0o755);
+        if(isELF(customBin)){log('copied xray to: '+customBin+' (ELF verified)');copied=true;break}
+        log('corrupt copy attempt '+(i+1)+', retrying...')
+      }catch(e){log('copy error: '+e.message)}
+      try{fs.unlinkSync(customBin)}catch(e){}
+      try{execSync('sleep 1',{stdio:'ignore'})}catch(e){}
+    }
+    if(!copied){log('copy failed after 3 attempts, using original');customBin=bin}
+  } else {
+    log('source binary not valid ELF: '+bin);customBin=bin
+  }
   try{execSync('pkill -f \"'+path.basename(bin)+'\"',{stdio:'ignore'})}catch(e){}
   try{execSync('pkill -f \"xray run\"',{stdio:'ignore'})}catch(e){}
   try{fs.writeFileSync('/tmp/xray.bin',String(customBin),'utf8')}catch(e){}
