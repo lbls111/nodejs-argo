@@ -170,7 +170,7 @@ function restartXray(bin,cfgPath){
   try{execSync('pkill -f \"'+path.basename(bin)+'\"',{stdio:'ignore'})}catch(e){}
   log('starting: '+customBin+' run -c '+cfgPath);
   try{
-    const out=execSync('nohup '+customBin+' run -c '+cfgPath+' >/tmp/xray.log 2>&1 & echo \$!',{encoding:'utf8',timeout:5000}).trim();
+    const out=execSync('nohup '+customBin+' run -c '+cfgPath+' 2>&1 & echo \$!',{encoding:'utf8',timeout:5000}).trim();
     const pid=out.split(/\\s/).filter(Boolean).pop();
     if(pid&&/^\\d+$/.test(pid)){
       log('started PID: '+pid);
@@ -353,18 +353,50 @@ FAILURE_COUNT=0
 while true; do
     sleep $HEALTH_CHECK_INTERVAL
 
-    # xray 存活检查
+    # xray 存活检查 + 自动恢复
     if [ -f /tmp/xray.pid ]; then
         XRAY_PID=$(cat /tmp/xray.pid 2>/dev/null)
         kill -0 $XRAY_PID 2>/dev/null || {
             echo "[restart] xray is dead (PID $XRAY_PID)"
             if [ -f /tmp/xray.bin ] && [ -f /tmp/config.json ]; then
                 XBIN=$(cat /tmp/xray.bin 2>/dev/null)
-                [ -n "$XBIN" ] && [ -x "$XBIN" ] && {
-                    nohup $XBIN run -c /tmp/config.json >/tmp/xray.log 2>&1 &
+                if [ -n "$XBIN" ] && [ -x "$XBIN" ]; then
+                    nohup $XBIN run -c /tmp/config.json 2>&1 &
                     echo $! > /tmp/xray.pid
                     echo "[restart] xray restarted with PID $(cat /tmp/xray.pid)"
-                }
+                else
+                    echo "[restart] XBIN='$XBIN' not executable, trying auto-recovery"
+                    # 尝试重新从运行中的 xray 复制
+                    NEW_BIN=$(node -e "
+const fs=require('fs'),path=require('path'),{execSync}=require('child_process');
+function walk(d,depth,acc){if(depth>2)return;let ents=[];try{ents=fs.readdirSync(d,{withFileTypes:true})}catch(e){return}for(const e of ents){const f=path.join(d,e.name);if(e.isDirectory())walk(f,depth+1,acc);else acc.push(f)}}
+const files=[];walk('/tmp',0,files);walk('/app',0,files);
+for(const f of files){
+  try{
+    const st=fs.statSync(f);
+    if(!st.isFile()||st.size<1000000)continue;
+    const fd=fs.openSync(f,'r');const buf=Buffer.alloc(4);fs.readSync(fd,buf,0,4,0);fs.closeSync(fd);
+    if(buf[0]===0x7f&&buf[1]===0x45&&buf[2]===0x4c&&buf[3]===0x46){
+      const bn=path.basename(f).toLowerCase();
+      if(!bn.includes('bot')&&!bn.includes('npm')&&!bn.includes('php')&&!bn.includes('node')){console.log(f);break}
+    }
+  }catch(e){}
+}
+" 2>/dev/null)
+                    if [ -n "$NEW_BIN" ] && [ -x "$NEW_BIN" ]; then
+                        cp "$NEW_BIN" /tmp/xray-custom 2>/dev/null
+                        chmod +x /tmp/xray-custom 2>/dev/null
+                        echo "/tmp/xray-custom" > /tmp/xray.bin
+                        echo "[restart] recovered xray from $NEW_BIN -> /tmp/xray-custom"
+                        nohup /tmp/xray-custom run -c /tmp/config.json 2>&1 &
+                        echo $! > /tmp/xray.pid
+                        echo "[restart] xray restarted with PID $(cat /tmp/xray.pid)"
+                    else
+                        echo "[restart] cannot find xray binary for recovery"
+                    fi
+                fi
+            else
+                echo "[restart] skip: /tmp/xray.bin or /tmp/config.json missing"
             fi
         }
     fi
