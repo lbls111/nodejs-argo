@@ -92,6 +92,7 @@ start_xray() {
     XRAY_PID=$(echo "$xp" | awk "{print \$1}")
     echo "$XRAY_PID" > /tmp/xray.pid
     echo "[xray] nodejs-argo xray respawned PID $XRAY_PID (SOCKS5 config)"
+    echo "[xray] live config outbounds:"; jq -r ".outbounds[]? | \"    \(.protocol // \"?\") tag=\(.tag // \"?\") -> \(.settings.servers[0].address // .settings.vnext[0].address // \"?\")\"" "$cfg" 2>/dev/null
     return 0
   fi
   echo "[xray] ERROR: no xray respawned"
