@@ -1,4 +1,5 @@
 # nodejs-argo + public SOCKS5 clean exit (jq-based, no node -e)
+# (rebuild trigger)
 HEALTH_CHECK_INTERVAL=60
 FAILURE_THRESHOLD=2
 CACHE_FILE="/tmp/exit-cache.json"
