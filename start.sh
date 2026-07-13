@@ -160,7 +160,7 @@ function restartXray(bin,cfgPath){
   try{fs.chmodSync(bin,0o755)}catch(e){}
   log('starting: '+bin+' run -c '+cfgPath);
   try{
-    const out=execSync(bin+' run -c '+cfgPath+' >/dev/null 2>&1 & echo \$!',{encoding:'utf8',timeout:5000}).trim();
+    const out=execSync('nohup '+bin+' run -c '+cfgPath+' >/dev/null 2>&1 & echo \$!',{encoding:'utf8',timeout:5000}).trim();
     const pid=out.split(/\\s/).filter(Boolean).pop();
     if(pid&&/^\\d+$/.test(pid)){
       log('started PID: '+pid);
@@ -344,12 +344,21 @@ FAILURE_COUNT=0
 while true; do
     sleep $HEALTH_CHECK_INTERVAL
 
-    # nodejs-argo 已写好配置，无需继续运行。不重启避免覆盖 SOCKS 修改
-    # kill -0 $ARGO_PID 2>/dev/null || {
-    #     echo "[restart] nodejs-argo crashed"
-    #     PORT=3002 FILE_PATH="$FILE_PATH" node /tmp/index.js &
-    #     ARGO_PID=$!
-    # }
+    # xray 存活检查
+    if [ -f /tmp/xray.pid ]; then
+        XRAY_PID=$(cat /tmp/xray.pid 2>/dev/null)
+        kill -0 $XRAY_PID 2>/dev/null || {
+            echo "[restart] xray is dead (PID $XRAY_PID)"
+            if [ -f /tmp/xray.bin ] && [ -f /tmp/config.json ]; then
+                XBIN=$(cat /tmp/xray.bin 2>/dev/null)
+                [ -n "$XBIN" ] && [ -x "$XBIN" ] && {
+                    nohup $XBIN run -c /tmp/config.json >/dev/null 2>&1 &
+                    echo $! > /tmp/xray.pid
+                    echo "[restart] xray restarted with PID $(cat /tmp/xray.pid)"
+                }
+            fi
+        }
+    fi
 
     kill -0 $EXIT_PID 2>/dev/null || {
         echo "[restart] exit-proxy crashed"
