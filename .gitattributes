@@ -1,8 +1,2 @@
-# Force LF line endings for all scripts and source files used in Docker
+* text=auto
 *.sh text eol=lf
-*.go text eol=lf
-*.py text eol=lf
-*.js text eol=lf
-*.json text eol=lf
-*.conf text eol=lf
-Dockerfile text eol=lf
