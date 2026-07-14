@@ -1,5 +1,6 @@
 # ==========================================
-# nodejs-argo + 鍏叡 SOCKS5 骞插噣鍑哄彛锛坕nline modify锛?# ==========================================
+# nodejs-argo + public SOCKS5 clean exit (inline modify)
+# ==========================================
 
 FROM node:alpine3.22
 
@@ -7,13 +8,15 @@ WORKDIR /tmp
 
 RUN apk update && apk upgrade && apk add --no-cache openssl curl gcompat coreutils bash jq ca-certificates netcat-openbsd nginx
 
+COPY install-cloudflared.sh /tmp/
+RUN sh /tmp/install-cloudflared.sh
+
 COPY index.js index.html package.json ./
 COPY exit-proxy.js /tmp/
 COPY start.sh refresh-vpn.sh ./
 
-RUN chmod +x index.js start.sh refresh-vpn.sh /tmp/exit-proxy.js && npm install
+RUN chmod +x index.js start.sh refresh-vpn.sh /tmp/exit-proxy.js /tmp/install-cloudflared.sh && npm install
 
-# modify-xray 宸插唴鑱斿埌 start.sh锛屼笉鍐嶉渶瑕佸崟鐙枃浠?
 COPY nginx.conf /etc/nginx/nginx.conf
 
 EXPOSE 3000/tcp
