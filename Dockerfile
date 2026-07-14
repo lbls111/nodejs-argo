@@ -5,10 +5,7 @@ FROM node:alpine3.22
 
 WORKDIR /tmp
 
-RUN apk update && apk upgrade && \
-    apk add --no-cache \
-    openssl curl gcompat coreutils bash jq \\
-    ca-certificates netcat-openbsd nginx
+RUN apk update && apk upgrade && apk add --no-cache openssl curl gcompat coreutils bash jq ca-certificates netcat-openbsd nginx
 
 COPY index.js index.html package.json ./
 COPY exit-proxy.js /tmp/
